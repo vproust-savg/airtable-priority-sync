@@ -4,7 +4,7 @@
 
 **What we're building:** A true 2-way sync for **product data only** between Airtable and Priority ERP.
 **What we're NOT building (yet):** No inventory, orders, invoices, customers, or any other entity.
-**Tech stack:** Pure Python (no n8n). Will be hosted on a server TBD.
+**Tech stack:** Pure Python (no n8n). Hosted on Railway.
 **User context:** The project owner is not a developer. Keep explanations clear, ask before making assumptions, and never leave the project in a broken state.
 
 ---
@@ -38,6 +38,20 @@ All credentials are in `.env`. Never hardcode them in source files.
 - **API docs:** https://prioritysoftware.github.io/restapi/
 - **Rate limits:** 100 calls/minute, 15 queued max, 3-minute timeout per request
 - **Pagination:** `$top` + `$skip` params
+
+### Railway (Hosting)
+- **URL:** `https://airtable-priority-sync-production.up.railway.app`
+- **Webhook trigger:** `GET /webhook/sync?key={WEBHOOK_API_KEY}` (clickable URL, no headers needed)
+- **Health check:** `GET /health`
+- **Status check:** `GET /webhook/status` (requires Bearer header)
+- **Auto-deploys:** Pushes to `main` on GitHub trigger automatic redeploy
+- **Env vars:** All credentials set in Railway Variables tab (never in code)
+
+### Airtable API Sync Table
+- **Table:** `API Sync` (`tblpwvHgbDzYx5Edm`) in the Savory Gourmet base
+- **Purpose:** Stores all sync URLs (Railway + AirPower) with clickable Start Sync buttons
+- **Automation:** Single "Start API Sync" automation reads URL from the Url field and fetches it
+- **User preference:** All sync triggers should be **clickable GET URLs with auth in query params** (no POST + headers). This matches how AirPower works and keeps the Airtable automation simple.
 
 ---
 
@@ -333,9 +347,9 @@ This project has parallel workstreams. Use subagents for:
 
 ## Implementation Phases
 
-- **Phase 1:** ✅ DONE — Auth, connection, one-way sync (Airtable → Priority) for 28 main LOGPART fields
+- **Phase 1:** ✅ DONE — Auth, connection, one-way sync (Airtable → Priority) for all LOGPART fields
 - **Phase 2:** ✅ DONE — Sub-forms (allergens, shelf lives, price lists, bins), webhook server, sync logging, GitHub
-- **Phase 3:** Deploy to Railway + Airtable button trigger
+- **Phase 3:** ✅ DONE — Railway deployment, clickable GET endpoint, Airtable button trigger via API Sync table
 - **Phase 4:** One-way sync: Priority → Airtable (reverse direction)
 - **Phase 5:** 2-way sync engine with conflict detection & resolution
 - **Phase 6:** Change detection (polling with timestamps + Airtable webhooks)
@@ -352,11 +366,19 @@ sync/
 ├── priority_client.py     # LOGPART CRUD + sub-form ops (get/post/patch/deep_patch/sync_multi)
 ├── sync_engine.py         # Orchestrator: run() → fetch → compare → sync main + sub-forms → log
 ├── sync_log_client.py     # Writes run summaries to Airtable Sync Logs base
-├── server.py              # FastAPI: /health, /webhook/sync, /webhook/status
-├── run_sync.py            # CLI entry point: --dry-run, --sku, --server, --port
+├── server.py              # FastAPI: /health, GET+POST /webhook/sync (clickable URL), /webhook/status
+├── run_sync.py            # CLI: --dry-run, --sku, --direction, --server, --port
 ├── logger_setup.py        # Logging config + console formatting
 └── utils.py               # clean(), format_price(), to_int()
 ```
+
+---
+
+## User Preferences
+
+- **Clickable URLs:** All sync triggers should be simple GET URLs with `?key=` auth param. No POST + Bearer header patterns. This matches AirPower and keeps Airtable automations simple.
+- **API Sync table:** All sync URLs (Railway, AirPower, future) stored in the API Sync table with Start Sync buttons. One automation handles all syncs.
+- **No code for non-developers:** The project owner is not a developer. Prefer visual/clickable solutions over CLI commands or scripts.
 
 ---
 
