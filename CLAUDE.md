@@ -25,9 +25,11 @@ All credentials are in `.env`. Never hardcode them in source files.
 ### Airtable
 - **Base:** Savory Gourmet (`appjwOgR4HsXeGIda`)
 - **Main table:** `Products` (accessed via multiple views for different field groups)
-- **Secondary table:** `Shelf Lives` (linked to Products)
+- **Secondary table:** `Shelf Lives` (table ID: `tbluWqVkrpLFh0D1G`, view: `EDI Parts 2 - Shelf Lives`)
+- **Sync view:** `Airtable > Priority API Sync` (only returns records where Priority Sync Needed = "Yes")
 - **Auth:** Personal Access Token (in `.env` as `AIRTABLE_TOKEN`)
 - **MCP access:** Claude has direct Airtable MCP access for reads/writes
+- **Sync Logs base:** `appr935iOTErWivM1` (tables: Sync Runs `tblSN1oQUP18mDq0K`, Sync Errors `tbljeM0YaEIWJRs63`)
 
 ### Priority ERP
 - **API URL:** `https://us.priority-connect.online/odata/Priority/tabc8cae.ini/a071024/`
@@ -161,15 +163,128 @@ The existing script (`tools/10. Script for Product All v8.py`) defines the Airta
 
 ---
 
-## Priority API Patterns (from working customer sync)
+## Priority API Patterns (Tested & Proven)
 
-These patterns are proven to work with our Priority instance:
+### Authentication & Headers
 - **Auth:** HTTP Basic Auth with username/password from `.env`
 - **Required header:** `IEEE754Compatible: true` on all requests
-- **Upsert pattern:** GET the entity first. If 404 → POST (create). If 200 → PATCH (update).
-- **URL for single product:** `{PRIORITY_API_URL}LOGPART('{PARTNAME}')`
-- **URL for sub-form:** `{PRIORITY_API_URL}LOGPART('{PARTNAME}')/SAVR_ALLERGENS_SUBFORM`
-- **Batch operations:** POST to `$batch` endpoint, max 100 operations per batch
+- **Content-Type:** `application/json`
+
+### Main Entity (LOGPART) Operations
+- **GET one:** `{API_URL}LOGPART('{SKU}')` → 200 with entity, or 404
+- **GET all (paginated):** `{API_URL}LOGPART?$select=PARTNAME&$top=500&$skip=0`
+- **POST (create):** `{API_URL}LOGPART` with JSON body
+- **PATCH (update):** `{API_URL}LOGPART('{SKU}')` with only changed fields
+- **Upsert pattern:** GET first → 404 means POST, 200 means compare + PATCH
+- **create_only fields:** `PUNITNAME` can only be set on POST, not PATCH (Priority rejects it)
+
+### Sub-Form Operations — CRITICAL PATTERNS
+
+Priority has **three distinct sub-form behaviors**. Each requires a different API strategy.
+Getting this wrong causes 404s, 409s, or silent failures. Always match the pattern below.
+
+#### Pattern A: Single-Entity Sub-Forms (Allergens)
+**Applies to:** `SAVR_ALLERGENS_SUBFORM`
+
+These sub-forms return a **single entity** (not an array). The GET response has
+`$entity` in its `@odata.context` and fields are returned directly at the top level
+(NOT wrapped in a `"value"` array).
+
+```
+GET  .../LOGPART('{SKU}')/SAVR_ALLERGENS_SUBFORM
+→ {"@odata.context": "...$entity", "DAIRY": "Yes", "EGGS": "No", ...}
+   (NOT {"value": [...]})
+
+PATCH .../LOGPART('{SKU}')/SAVR_ALLERGENS_SUBFORM
+→ Body: {"PEANUT": "Yes"}  (only changed fields)
+→ 200 OK
+```
+
+**Key rules:**
+- GET returns the entity directly — code must detect `$entity` in context and NOT look for `"value"` key
+- PATCH directly on the sub-form URL (no key in parentheses needed)
+- POST only for products that have NO allergen record yet (returns 409 if record already exists)
+- Implemented in: `priority_client.py → upsert_single_subform()`
+
+#### Pattern B: Multi-Record Sub-Forms with URL Keys (Shelf Lives)
+**Applies to:** `SAVR_PARTSHELF_SUBFORM`
+
+These sub-forms return a `"value"` array. Individual records are accessible by their
+**internal integer key** (NOT by a human-readable field value).
+
+```
+GET  .../LOGPART('{SKU}')/SAVR_PARTSHELF_SUBFORM
+→ {"value": [
+     {"TYPE": "Frozen", "NUMBER": 18, "TIMEUNIT": "Months", "SHELFLIFE": 3},
+     {"TYPE": "Aft. Op.", "NUMBER": 1, "TIMEUNIT": "Days", "SHELFLIFE": 4}
+   ]}
+
+GET  .../SAVR_PARTSHELF_SUBFORM(3)   → returns "Frozen" record (SHELFLIFE=3)
+GET  .../SAVR_PARTSHELF_SUBFORM(4)   → returns "Aft. Op." record (SHELFLIFE=4)
+
+PATCH .../SAVR_PARTSHELF_SUBFORM(3)  → update the "Frozen" record
+POST  .../SAVR_PARTSHELF_SUBFORM     → create a new shelf life record
+```
+
+**Key rules:**
+- Match records by human-readable field (`TYPE`) but PATCH using the **integer entity key** (`SHELFLIFE`)
+- The entity key field name varies per sub-form — for shelf lives it's `SHELFLIFE`
+- `SAVR_PARTSHELF_SUBFORM('Frozen')` → 404! String keys DO NOT work here
+- Implemented in: `priority_client.py → sync_multi_subform(url_key_field="SHELFLIFE")`
+
+#### Pattern C: Multi-Record Sub-Forms WITHOUT URL Keys (Price Lists, Bins)
+**Applies to:** `PARTINCUSTPLISTS_SUBFORM`, `PARTLOCATIONS_SUBFORM`
+
+These sub-forms return a `"value"` array but individual records **cannot be accessed
+by any key**. All attempts to GET/PATCH/DELETE a specific record return 404.
+
+```
+GET  .../LOGPART('{SKU}')/PARTINCUSTPLISTS_SUBFORM
+→ {"value": [{"PLNAME": "Base", "PRICE": 84.81, ...}, ...]}
+
+GET  .../PARTINCUSTPLISTS_SUBFORM('Base')      → 404!
+GET  .../PARTINCUSTPLISTS_SUBFORM(1)           → 404!
+GET  .../PARTINCUSTPLISTS_SUBFORM(PLNAME='Base') → 404!
+PATCH .../PARTINCUSTPLISTS_SUBFORM (collection) → 400!
+
+POST .../PARTINCUSTPLISTS_SUBFORM → creates a NEW record (409 if already exists)
+```
+
+**Solution: Deep PATCH on the parent entity.** Include sub-form records as a nested
+array in the parent LOGPART PATCH:
+
+```
+PATCH .../LOGPART('{SKU}')
+Body: {
+  "PARTINCUSTPLISTS_SUBFORM": [
+    {"PLNAME": "Base", "PRICE": 84.81, "CODE": "$", "QUANT": 1, "UNITNAME": "cs"}
+  ]
+}
+→ 200 OK (updates matching records by PLNAME)
+```
+
+**Key rules:**
+- Cannot access individual records — no key works in the URL
+- POST creates new records but fails with 409 if record already exists
+- **Use deep PATCH** on `LOGPART('{SKU}')` with nested sub-form array
+- Priority matches records internally (e.g., by PLNAME for price lists)
+- Compare locally first (GET → diff) to avoid unnecessary API calls
+- Implemented in: `priority_client.py → deep_patch_subform()`
+
+### Sub-Form Summary Table
+
+| Sub-Form | Pattern | GET Response | Update Method | Key |
+|----------|---------|-------------|---------------|-----|
+| `SAVR_ALLERGENS_SUBFORM` | A (single entity) | `$entity` (no value array) | PATCH on sub-form URL | None needed |
+| `SAVR_PARTSHELF_SUBFORM` | B (multi + URL key) | `{"value": [...]}` | PATCH with integer key | `SHELFLIFE` (int) |
+| `PARTINCUSTPLISTS_SUBFORM` | C (multi, no key) | `{"value": [...]}` | Deep PATCH on LOGPART | N/A |
+| `PARTLOCATIONS_SUBFORM` | C (multi, no key) | `{"value": [...]}` | Deep PATCH on LOGPART | N/A |
+
+### Error Messages to Know
+- **409 "A record with the specified key already exists"** → tried POST when record exists; need PATCH
+- **404 on sub-form** → either wrong entity key or the sub-form doesn't support individual access (use Pattern C)
+- **400 "Quantity missing"** on price list POST → QUANT field is required
+- **400 on PUNITNAME PATCH** → this field is create_only; can only be set on POST
 
 ---
 
@@ -218,14 +333,30 @@ This project has parallel workstreams. Use subagents for:
 
 ## Implementation Phases
 
-- **Phase 1:** Authentication & connection to both APIs
-- **Phase 2:** Full field mapping (Airtable ↔ Priority) with transformation rules
-- **Phase 3:** One-way sync: Airtable → Priority (build on existing script patterns)
+- **Phase 1:** ✅ DONE — Auth, connection, one-way sync (Airtable → Priority) for 28 main LOGPART fields
+- **Phase 2:** ✅ DONE — Sub-forms (allergens, shelf lives, price lists, bins), webhook server, sync logging, GitHub
+- **Phase 3:** Deploy to Railway + Airtable button trigger
 - **Phase 4:** One-way sync: Priority → Airtable (reverse direction)
 - **Phase 5:** 2-way sync engine with conflict detection & resolution
 - **Phase 6:** Change detection (polling with timestamps + Airtable webhooks)
-- **Phase 7:** Error handling, retries, logging, monitoring
-- **Phase 8:** Testing & deployment
+
+## Current Architecture
+
+```
+sync/
+├── config.py              # Env vars, constants, table IDs
+├── models.py              # Pydantic: SyncStats, SyncRecord, SubformResult, FieldMapping
+├── field_mapping.py       # 28 LOGPART field mappings + AIRTABLE_FIELDS_TO_FETCH list
+├── subform_mapping.py     # 4 sub-form mappings: allergens, shelf lives, price lists, bins
+├── airtable_client.py     # Read (fetch_changed_records, fetch_record_by_sku, fetch_shelf_lives) + write (batch_update_timestamps)
+├── priority_client.py     # LOGPART CRUD + sub-form ops (get/post/patch/deep_patch/sync_multi)
+├── sync_engine.py         # Orchestrator: run() → fetch → compare → sync main + sub-forms → log
+├── sync_log_client.py     # Writes run summaries to Airtable Sync Logs base
+├── server.py              # FastAPI: /health, /webhook/sync, /webhook/status
+├── run_sync.py            # CLI entry point: --dry-run, --sku, --server, --port
+├── logger_setup.py        # Logging config + console formatting
+└── utils.py               # clean(), format_price(), to_int()
+```
 
 ---
 

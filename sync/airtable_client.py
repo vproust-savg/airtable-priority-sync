@@ -207,6 +207,48 @@ class AirtableClient:
         )
         return by_sku
 
+    def fetch_record_by_sku(self, sku: str) -> list[dict[str, Any]]:
+        """
+        Fetch a single record by SKU, bypassing the sync view filter.
+        Used for --sku testing so we can re-sync a specific product
+        even if it's not currently flagged as needing sync.
+
+        Returns list of raw Airtable record dicts (0 or 1 items).
+        """
+        field_params = [(f"fields[]", f) for f in AIRTABLE_FIELDS_TO_FETCH]
+        formula = f'{{{AIRTABLE_FIELD_SKU}}}="{sku}"'
+        params = [("filterByFormula", formula)] + field_params
+
+        for attempt in range(AIRTABLE_MAX_RETRIES):
+            try:
+                response = self.session.get(
+                    self._base_url,
+                    params=params,
+                    timeout=AIRTABLE_REQUEST_TIMEOUT,
+                )
+
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get("Retry-After", 30))
+                    logger.warning("Airtable rate limited. Waiting %ds...", retry_after)
+                    time.sleep(retry_after)
+                    continue
+
+                response.raise_for_status()
+                data = response.json()
+                records = data.get("records", [])
+                logger.debug("Fetched %d records for SKU %s", len(records), sku)
+                return records
+
+            except requests.exceptions.RequestException as e:
+                if attempt == AIRTABLE_MAX_RETRIES - 1:
+                    logger.error("Failed to fetch SKU %s: %s", sku, e)
+                    raise
+                wait_time = 2 ** attempt
+                logger.warning("Attempt %d failed, retrying in %ds: %s", attempt + 1, wait_time, e)
+                time.sleep(wait_time)
+
+        return []
+
     # ── Write ────────────────────────────────────────────────────────────
 
     def batch_update_timestamps(

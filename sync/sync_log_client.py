@@ -16,8 +16,8 @@ import requests
 from sync.config import (
     AIRTABLE_API_BASE,
     AIRTABLE_LOG_BASE_ID,
+    AIRTABLE_LOG_TOKEN,
     AIRTABLE_REQUEST_TIMEOUT,
-    AIRTABLE_TOKEN,
     LA_TIMEZONE,
 )
 from sync.models import SyncStats
@@ -41,7 +41,7 @@ class SyncLogClient:
         self.base_url = f"{AIRTABLE_API_BASE}/{AIRTABLE_LOG_BASE_ID}"
         self.session = requests.Session()
         self.session.headers.update({
-            "Authorization": f"Bearer {AIRTABLE_TOKEN}",
+            "Authorization": f"Bearer {AIRTABLE_LOG_TOKEN}",
             "Content-Type": "application/json",
         })
 

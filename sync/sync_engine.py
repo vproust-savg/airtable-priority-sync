@@ -102,16 +102,22 @@ class ProductSyncEngine:
         label = "DRY RUN — Airtable → Priority" if self.dry_run else "Airtable → Priority"
         print_banner(label)
 
-        # Step 1: Fetch changed records from Airtable
-        print_section("Fetching changed records from Airtable...")
-        airtable_records = self.airtable.fetch_changed_records()
-
-        # Filter to single SKU if specified (for testing)
+        # Step 1: Fetch records from Airtable
         if self.single_sku:
-            airtable_records = [
-                r for r in airtable_records
-                if clean(r.get("fields", {}).get(AIRTABLE_FIELD_SKU)) == self.single_sku
-            ]
+            # When testing a specific SKU, fetch it directly (bypass sync view)
+            print_section(f"Fetching SKU {self.single_sku} from Airtable...")
+            airtable_records = self.airtable.fetch_record_by_sku(self.single_sku)
+            if not airtable_records:
+                # Fallback: try the sync view in case SKU is flagged
+                print_detail(f"SKU {self.single_sku} not found by direct lookup, trying sync view...")
+                airtable_records = self.airtable.fetch_changed_records()
+                airtable_records = [
+                    r for r in airtable_records
+                    if clean(r.get("fields", {}).get(AIRTABLE_FIELD_SKU)) == self.single_sku
+                ]
+        else:
+            print_section("Fetching changed records from Airtable...")
+            airtable_records = self.airtable.fetch_changed_records()
 
         self.stats.total_fetched = len(airtable_records)
 
@@ -373,14 +379,15 @@ class ProductSyncEngine:
     def _sync_shelf_lives(
         self, sku: str, shelf_life_records: list[dict[str, Any]], result: SyncRecord
     ) -> None:
-        """Sync shelf lives sub-form (multi-record)."""
+        """Sync shelf lives sub-form (multi-record, keyed by SHELFLIFE integer)."""
         try:
             payloads = map_shelf_lives(shelf_life_records)
             if not payloads:
                 return
 
             res = self.priority.sync_multi_subform(
-                sku, SHELF_LIFE_SUBFORM_NAME, "TYPE", payloads
+                sku, SHELF_LIFE_SUBFORM_NAME, "TYPE", payloads,
+                url_key_field="SHELFLIFE",  # Priority uses SHELFLIFE int as entity key
             )
             detail = f"c:{res['created']} u:{res['updated']} s:{res['skipped']}"
             result.subform_results.append(SubformResult(
@@ -402,16 +409,65 @@ class ProductSyncEngine:
     def _sync_price_lists(
         self, sku: str, fields: dict[str, Any], result: SyncRecord
     ) -> None:
-        """Sync price lists sub-form (multi-record, up to 3 levels)."""
+        """
+        Sync price lists sub-form (multi-record, up to 3 levels).
+
+        PARTINCUSTPLISTS_SUBFORM doesn't expose individual record keys,
+        so we compare locally and use deep PATCH on the parent LOGPART
+        to push changes.
+        """
         try:
             payloads = map_price_lists(fields)
             if not payloads:
                 return
 
-            res = self.priority.sync_multi_subform(
-                sku, PRICE_LIST_SUBFORM_NAME, "PLNAME", payloads
-            )
-            detail = f"c:{res['created']} u:{res['updated']} s:{res['skipped']}"
+            # GET existing price lists from Priority
+            existing = self.priority.get_subform(sku, PRICE_LIST_SUBFORM_NAME)
+            existing_by_plname: dict[str, dict[str, Any]] = {}
+            for rec in existing:
+                plname = str(rec.get("PLNAME", "")).strip()
+                if plname:
+                    existing_by_plname[plname] = rec
+
+            # Determine what needs creating vs updating
+            records_to_push: list[dict[str, Any]] = []
+            created = 0
+            updated = 0
+            skipped = 0
+
+            for desired in payloads:
+                plname = str(desired.get("PLNAME", "")).strip()
+                if not plname:
+                    continue
+
+                if plname not in existing_by_plname:
+                    # New price list → include in deep PATCH
+                    records_to_push.append(desired)
+                    created += 1
+                else:
+                    # Existing → compare fields
+                    current = existing_by_plname[plname]
+                    has_changes = False
+                    for field, new_value in desired.items():
+                        if field == "PLNAME":
+                            continue
+                        old_value = current.get(field)
+                        if str(new_value).strip() != str(old_value or "").strip():
+                            has_changes = True
+                            break
+
+                    if has_changes:
+                        records_to_push.append(desired)
+                        updated += 1
+                    else:
+                        skipped += 1
+
+            if records_to_push:
+                self.priority.deep_patch_subform(
+                    sku, PRICE_LIST_SUBFORM_NAME, records_to_push
+                )
+
+            detail = f"c:{created} u:{updated} s:{skipped}"
             result.subform_results.append(SubformResult(
                 subform="price_lists", action="synced", detail=detail,
             ))
@@ -431,22 +487,48 @@ class ProductSyncEngine:
     def _sync_bins(
         self, sku: str, fields: dict[str, Any], result: SyncRecord
     ) -> None:
-        """Sync bin locations sub-form."""
+        """
+        Sync bin locations sub-form.
+
+        PARTLOCATIONS_SUBFORM doesn't expose individual record keys,
+        so we compare locally and use deep PATCH on the parent LOGPART.
+        """
         try:
             payload = map_bins(fields)
             if not payload or (len(payload) == 1 and "WARHSNAME" in payload):
                 # Only default warehouse, no actual bin data
                 return
 
-            res = self.priority.upsert_single_subform(
-                sku, BIN_SUBFORM_NAME, payload
+            # GET existing bins from Priority
+            existing = self.priority.get_subform(sku, BIN_SUBFORM_NAME)
+
+            # Check if bin data has changed
+            if existing:
+                current = existing[0]
+                has_changes = False
+                for field, new_value in payload.items():
+                    old_value = current.get(field)
+                    if str(new_value).strip() != str(old_value or "").strip():
+                        has_changes = True
+                        break
+                if not has_changes:
+                    result.subform_results.append(SubformResult(
+                        subform="bins", action="skipped", detail="no changes",
+                    ))
+                    return
+
+            # Use deep PATCH to update bins
+            self.priority.deep_patch_subform(
+                sku, BIN_SUBFORM_NAME, [payload]
             )
+
+            action = "created" if not existing else "updated"
             result.subform_results.append(SubformResult(
                 subform="bins",
-                action=res["action"],
-                detail=f"{res['fields_changed']} fields",
+                action=action,
+                detail=f"{len(payload)} fields",
             ))
-            logger.debug("Bins for %s: %s", sku, res["action"])
+            logger.debug("Bins for %s: %s", sku, action)
 
         except Exception as e:
             logger.error("Bin sub-form error for %s: %s", sku, e)

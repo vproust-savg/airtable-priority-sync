@@ -49,6 +49,8 @@ AIRTABLE_MAX_RETRIES = 3
 
 # ── Airtable Sync Logs (optional — graceful degradation if not set) ──────────
 AIRTABLE_LOG_BASE_ID = os.environ.get("AIRTABLE_LOG_BASE_ID", "").strip() or None
+# Separate token for log base (falls back to main AIRTABLE_TOKEN if not set)
+AIRTABLE_LOG_TOKEN = os.environ.get("AIRTABLE_LOG_TOKEN", "").strip() or AIRTABLE_TOKEN
 
 # ── Priority ERP ─────────────────────────────────────────────────────────────
 PRIORITY_API_URL = _require_env("PRIORITY_API_URL")

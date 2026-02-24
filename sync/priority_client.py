@@ -310,6 +310,11 @@ class PriorityClient:
         """
         Fetch all sub-form records for a product.
 
+        Handles two Priority response formats:
+        - Multi-record sub-forms: {"value": [record1, record2, ...]}
+        - Single-entity sub-forms: {field1: val1, field2: val2, ...}
+          (indicated by '$entity' in @odata.context)
+
         Args:
             partname: The product's PARTNAME (SKU).
             subform_name: e.g. 'SAVR_ALLERGENS_SUBFORM', 'SAVR_PARTSHELF_SUBFORM'
@@ -324,7 +329,23 @@ class PriorityClient:
             return []
 
         data = response.json()
-        return data.get("value", [])
+
+        # Multi-record sub-form: {"value": [...]}
+        if "value" in data:
+            return data["value"]
+
+        # Single-entity sub-form: fields returned directly
+        # (e.g. SAVR_ALLERGENS_SUBFORM returns $entity, not value array)
+        context = data.get("@odata.context", "")
+        if "$entity" in context or any(
+            k for k in data if not k.startswith("@")
+        ):
+            # Strip OData metadata keys, return as single-item list
+            record = {k: v for k, v in data.items() if not k.startswith("@")}
+            if record:
+                return [record]
+
+        return []
 
     def post_subform(
         self,
@@ -465,15 +486,53 @@ class PriorityClient:
 
         return response.json()
 
+    def deep_patch_subform(
+        self,
+        partname: str,
+        subform_name: str,
+        records: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """
+        Update sub-form records using deep PATCH on the parent LOGPART entity.
+
+        Some Priority sub-forms (e.g. PARTINCUSTPLISTS, PARTLOCATIONS) don't
+        expose individual record access via URL keys. For these, we PATCH the
+        parent entity with nested sub-form data.
+
+        Args:
+            partname: The product's PARTNAME (SKU).
+            subform_name: e.g. 'PARTINCUSTPLISTS_SUBFORM'
+            records: List of sub-form record dicts to set.
+
+        Returns:
+            The parent entity response from Priority.
+        """
+        url = f"{PRIORITY_API_URL}LOGPART('{partname}')"
+        payload = {subform_name: records}
+
+        logger.debug(
+            "Deep PATCH %s for %s: %d records",
+            subform_name, partname, len(records),
+        )
+
+        response = self._request("PATCH", url, json_body=payload)
+        if response is None:
+            raise requests.HTTPError(
+                f"No response from Priority on deep PATCH {subform_name}"
+            )
+
+        return response.json()
+
     def sync_multi_subform(
         self,
         partname: str,
         subform_name: str,
         key_field: str,
         desired_records: list[dict[str, Any]],
+        url_key_field: str | None = None,
     ) -> dict[str, Any]:
         """
-        Sync a multi-record sub-form (e.g. shelf lives, price lists).
+        Sync a multi-record sub-form (e.g. shelf lives).
 
         Strategy:
         - GET existing records
@@ -485,8 +544,12 @@ class PriorityClient:
         Args:
             partname: The product's PARTNAME (SKU).
             subform_name: e.g. 'SAVR_PARTSHELF_SUBFORM'
-            key_field: Field to match on (e.g. 'TYPE', 'PLNAME')
+            key_field: Field to match on (e.g. 'TYPE' for shelf lives)
             desired_records: List of payload dicts from Airtable mapping.
+            url_key_field: If provided, use this field's value from the
+                *existing* Priority record as the URL key for PATCH.
+                E.g. 'SHELFLIFE' integer for shelf lives.
+                If None, uses key_field value in the URL (string).
 
         Returns:
             {"created": int, "updated": int, "skipped": int}
@@ -528,9 +591,38 @@ class PriorityClient:
                         changed[field] = new_value
 
                 if changed:
-                    self.patch_subform(
-                        partname, subform_name, key_field, key_value, changed
+                    # Determine the URL key for PATCH
+                    if url_key_field:
+                        # Use the existing record's url_key_field value (e.g. SHELFLIFE integer)
+                        url_key = current.get(url_key_field)
+                        if url_key is None:
+                            logger.warning(
+                                "No %s value for %s[%s=%s] — skipping PATCH",
+                                url_key_field, subform_name, key_field, key_value,
+                            )
+                            result["skipped"] += 1
+                            continue
+                        # Use numeric key (no quotes in URL)
+                        url = (
+                            f"{PRIORITY_API_URL}LOGPART('{partname}')/"
+                            f"{subform_name}({url_key})"
+                        )
+                    else:
+                        # Use string key (with quotes in URL)
+                        url = (
+                            f"{PRIORITY_API_URL}LOGPART('{partname}')/"
+                            f"{subform_name}('{key_value}')"
+                        )
+
+                    logger.debug(
+                        "PATCH sub-form %s for %s: %s",
+                        subform_name, partname, list(changed.keys()),
                     )
+                    response = self._request("PATCH", url, json_body=changed)
+                    if response is None:
+                        raise requests.HTTPError(
+                            f"No response from Priority on PATCH {subform_name}"
+                        )
                     result["updated"] += 1
                 else:
                     result["skipped"] += 1
