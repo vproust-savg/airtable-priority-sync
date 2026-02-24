@@ -58,12 +58,16 @@ def main() -> int:
     # ── Server mode ───────────────────────────────────────────────────────
     if args.server:
         setup_logging()
+        import os
+
         import uvicorn
 
         from sync.server import app
 
-        print(f"  Starting webhook server on port {args.port}...")
-        uvicorn.run(app, host="0.0.0.0", port=args.port, log_level="info")
+        # Railway injects PORT env var; fall back to --port arg (default 8000)
+        port = int(os.environ.get("PORT", args.port))
+        print(f"  Starting webhook server on port {port}...")
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
         return 0
 
     # ── CLI sync mode ─────────────────────────────────────────────────────
