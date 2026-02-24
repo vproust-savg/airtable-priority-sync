@@ -3,7 +3,8 @@ FastAPI webhook server for triggering product sync.
 
 Endpoints:
   GET  /health         → Health check (Railway uses this)
-  POST /webhook/sync   → Trigger sync (returns 202, runs in background)
+  POST /webhook/sync   → Trigger sync via POST + Bearer header (automations)
+  GET  /webhook/sync   → Trigger sync via clickable URL with ?key= param
   GET  /webhook/status → Last run result
 """
 
@@ -48,6 +49,17 @@ def _verify_api_key(authorization: str | None) -> None:
 
     token = authorization.removeprefix("Bearer ").strip()
     if token != WEBHOOK_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key.")
+
+
+def _verify_query_key(key: str | None) -> None:
+    """Validate the ?key= query parameter against WEBHOOK_API_KEY."""
+    if not WEBHOOK_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Webhook not configured. Set WEBHOOK_API_KEY env var.",
+        )
+    if not key or key != WEBHOOK_API_KEY:
         raise HTTPException(status_code=403, detail="Invalid API key.")
 
 
@@ -111,6 +123,36 @@ def trigger_sync(
     global _sync_running  # noqa: PLW0603
 
     _verify_api_key(authorization)
+
+    with _sync_lock:
+        if _sync_running:
+            raise HTTPException(
+                status_code=409,
+                detail="Sync already in progress. Try again later.",
+            )
+        _sync_running = True
+
+    background_tasks.add_task(_run_sync_background)
+
+    now_la = datetime.now(timezone.utc).astimezone(LA_TIMEZONE)
+    return {
+        "message": "Sync started",
+        "started_at": now_la.isoformat(),
+    }
+
+
+@app.get("/webhook/sync", status_code=202)
+def trigger_sync_get(
+    background_tasks: BackgroundTasks,
+    key: str | None = None,
+) -> dict[str, str]:
+    """
+    Trigger sync via clickable GET URL with ?key= query param.
+    Same behavior as POST but works as a simple link click.
+    """
+    global _sync_running  # noqa: PLW0603
+
+    _verify_query_key(key)
 
     with _sync_lock:
         if _sync_running:
