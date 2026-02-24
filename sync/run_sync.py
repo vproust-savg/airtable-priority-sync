@@ -7,6 +7,7 @@ Usage:
     python -m sync.run_sync --dry-run                # Preview without writing
     python -m sync.run_sync --sku 14860              # Sync single product
     python -m sync.run_sync --dry-run --sku 14860    # Preview single product
+    python -m sync.run_sync --server                 # Start webhook server
 """
 
 from __future__ import annotations
@@ -40,18 +41,40 @@ def main() -> int:
         default=None,
         help="Sync a single product by SKU (for testing).",
     )
+    parser.add_argument(
+        "--server",
+        action="store_true",
+        help="Start the FastAPI webhook server (for Railway deployment).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port for the webhook server (default: 8000).",
+    )
 
     args = parser.parse_args()
 
-    # Set up logging
+    # ── Server mode ───────────────────────────────────────────────────────
+    if args.server:
+        setup_logging()
+        import uvicorn
+
+        from sync.server import app
+
+        print(f"  Starting webhook server on port {args.port}...")
+        uvicorn.run(app, host="0.0.0.0", port=args.port, log_level="info")
+        return 0
+
+    # ── CLI sync mode ─────────────────────────────────────────────────────
     log_file = setup_logging()
 
-    # Run the sync
     try:
         engine = ProductSyncEngine(
             direction=SyncDirection(args.direction),
             dry_run=args.dry_run,
             single_sku=args.sku,
+            trigger="manual",
         )
         stats = engine.run()
 

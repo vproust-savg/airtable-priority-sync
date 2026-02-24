@@ -221,14 +221,55 @@ _BY_AIRTABLE = {m.airtable_field: m for m in PRODUCT_FIELD_MAP}
 # Quick lookup: Priority field name → FieldMapping
 _BY_PRIORITY = {m.priority_field: m for m in PRODUCT_FIELD_MAP}
 
-# All Airtable field names we need to fetch (for the fields[] API parameter)
-AIRTABLE_FIELDS_TO_FETCH: list[str] = [
-    m.airtable_field for m in PRODUCT_FIELD_MAP
-] + [
-    "Last Airtable Modified",
-    "Last Synced to Priority",
-    "Priority UDATE",
-]
+# All Airtable field names we need to fetch from the PRODUCTS table
+# (for the fields[] API parameter)
+# Includes: main LOGPART fields + sub-form fields + timestamps
+AIRTABLE_FIELDS_TO_FETCH: list[str] = (
+    [m.airtable_field for m in PRODUCT_FIELD_MAP]
+    + [
+        "Last Airtable Modified",
+        "Last Synced to Priority",
+        "Priority UDATE",
+    ]
+    + [
+        # ── Allergens & Features (23 fields) ──────────────────────────────
+        "Allergen_Allergen Present",
+        "Allergen_Eggs",
+        "Allergen_Dairy",
+        "Allergen_Fish",
+        "Allergen_Peanut",
+        "Allergen_Sesame",
+        "Allergen_Shellfish",
+        "Allergen_Soybean",
+        "Allergen_Tree Nuts",
+        "Allergen_Wheat",
+        "Feature_Feature Present",
+        "Feature_Gluten Free",
+        "Feature_Organic",
+        "Feature_Kosher",
+        "Feature_Vegan",
+        "Feature_Halal",
+        "Feature_Non GMO",
+        "Feature_Identity Protected",
+        "GFSI Certified",
+        "Glass Packaging",
+        "Prop. 65 Warning",
+        "Calif. Ass. Bill 418",
+        "Traceability Type Output",
+        # ── Price Lists (8 fields — Buy_Sell Unit already in main map) ────
+        "Lvl 1 Price List Code",
+        "LVL 1 SALE PRICE (from Price Import)",
+        "Lvl 2 Price List Code",
+        "LVL 2 SALE PRICE (from Price Import)",
+        "Lvl 3 Price List Code",
+        "LVL 3 SALE PRICE (from Price Import)",
+        "EDI $",
+        "EDI Price Quantity",
+        # ── Bin Locations (2 fields) ──────────────────────────────────────
+        "EDI Main",
+        "Simplified Bin Location (from Bin # Priority)",
+    ]
+)
 
 
 def get_mapping_by_airtable(field_name: str) -> FieldMapping | None:

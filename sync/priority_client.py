@@ -301,3 +301,238 @@ class PriorityClient:
             raise requests.HTTPError("No response from Priority on PATCH")
 
         return response.json()
+
+    # ── Sub-form operations ─────────────────────────────────────────────
+
+    def get_subform(
+        self, partname: str, subform_name: str
+    ) -> list[dict[str, Any]]:
+        """
+        Fetch all sub-form records for a product.
+
+        Args:
+            partname: The product's PARTNAME (SKU).
+            subform_name: e.g. 'SAVR_ALLERGENS_SUBFORM', 'SAVR_PARTSHELF_SUBFORM'
+
+        Returns:
+            List of sub-form record dicts.
+        """
+        url = f"{PRIORITY_API_URL}LOGPART('{partname}')/{subform_name}"
+        response = self._request("GET", url, allow_404=True)
+
+        if response is None:
+            return []
+
+        data = response.json()
+        return data.get("value", [])
+
+    def post_subform(
+        self,
+        partname: str,
+        subform_name: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Create a new sub-form record (POST).
+
+        Returns:
+            The created sub-form record from Priority.
+        """
+        url = f"{PRIORITY_API_URL}LOGPART('{partname}')/{subform_name}"
+        logger.debug(
+            "POST sub-form %s for %s: %s",
+            subform_name, partname, list(payload.keys()),
+        )
+
+        response = self._request("POST", url, json_body=payload)
+        if response is None:
+            raise requests.HTTPError(
+                f"No response from Priority on POST {subform_name}"
+            )
+
+        return response.json()
+
+    def patch_subform(
+        self,
+        partname: str,
+        subform_name: str,
+        key_field: str,
+        key_value: str,
+        patch_body: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Update an existing sub-form record (PATCH).
+
+        Args:
+            partname: The product's PARTNAME (SKU).
+            subform_name: e.g. 'SAVR_ALLERGENS_SUBFORM'
+            key_field: The sub-form's key field name (e.g. 'TYPE', 'PLNAME').
+            key_value: The value of the key field to target.
+            patch_body: Dict of changed fields.
+
+        Returns:
+            The updated sub-form record from Priority.
+        """
+        url = (
+            f"{PRIORITY_API_URL}LOGPART('{partname}')/"
+            f"{subform_name}('{key_value}')"
+        )
+        logger.debug(
+            "PATCH sub-form %s[%s=%s] for %s: %s",
+            subform_name, key_field, key_value, partname, list(patch_body.keys()),
+        )
+
+        response = self._request("PATCH", url, json_body=patch_body)
+        if response is None:
+            raise requests.HTTPError(
+                f"No response from Priority on PATCH {subform_name}"
+            )
+
+        return response.json()
+
+    def upsert_single_subform(
+        self,
+        partname: str,
+        subform_name: str,
+        payload: dict[str, Any],
+    ) -> dict[str, str]:
+        """
+        Upsert a single-record sub-form (e.g. allergens, bins).
+
+        Strategy:
+        - GET existing records
+        - If none exist → POST
+        - If exists → compare and PATCH only changed fields
+
+        Returns:
+            {"action": "created"|"updated"|"skipped", "fields_changed": int}
+        """
+        if not payload:
+            return {"action": "skipped", "fields_changed": "0"}
+
+        existing = self.get_subform(partname, subform_name)
+
+        if not existing:
+            # No sub-form record yet → POST
+            self.post_subform(partname, subform_name, payload)
+            return {"action": "created", "fields_changed": str(len(payload))}
+
+        # Compare with first existing record
+        current = existing[0]
+        changed: dict[str, Any] = {}
+
+        for field, new_value in payload.items():
+            old_value = current.get(field)
+            if str(new_value).strip() != str(old_value or "").strip():
+                changed[field] = new_value
+
+        if not changed:
+            return {"action": "skipped", "fields_changed": "0"}
+
+        # Find the key to use for PATCH URL — use the first field of payload
+        # For single-record sub-forms, we need the record's key
+        # Priority sub-forms use the first field as key in the URL
+        # For SAVR_ALLERGENS, we patch the whole record
+        # Use GET record's primary key (typically first field returned)
+        self.patch_subform_by_index(partname, subform_name, 0, changed)
+        return {"action": "updated", "fields_changed": str(len(changed))}
+
+    def patch_subform_by_index(
+        self,
+        partname: str,
+        subform_name: str,
+        index: int,
+        patch_body: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Update a sub-form record by its index (for single-record sub-forms
+        where the key is the row number).
+
+        Priority sub-forms use 0-based indexing in some cases.
+        We PATCH the entire sub-form entity for single-record forms.
+        """
+        url = f"{PRIORITY_API_URL}LOGPART('{partname}')/{subform_name}"
+        logger.debug(
+            "PATCH sub-form %s for %s (single record): %s",
+            subform_name, partname, list(patch_body.keys()),
+        )
+
+        response = self._request("PATCH", url, json_body=patch_body)
+        if response is None:
+            raise requests.HTTPError(
+                f"No response from Priority on PATCH {subform_name}"
+            )
+
+        return response.json()
+
+    def sync_multi_subform(
+        self,
+        partname: str,
+        subform_name: str,
+        key_field: str,
+        desired_records: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """
+        Sync a multi-record sub-form (e.g. shelf lives, price lists).
+
+        Strategy:
+        - GET existing records
+        - Match by key_field
+        - For each desired record:
+          - If not in existing → POST
+          - If in existing → compare and PATCH if changed
+
+        Args:
+            partname: The product's PARTNAME (SKU).
+            subform_name: e.g. 'SAVR_PARTSHELF_SUBFORM'
+            key_field: Field to match on (e.g. 'TYPE', 'PLNAME')
+            desired_records: List of payload dicts from Airtable mapping.
+
+        Returns:
+            {"created": int, "updated": int, "skipped": int}
+        """
+        result = {"created": 0, "updated": 0, "skipped": 0}
+
+        if not desired_records:
+            return result
+
+        existing = self.get_subform(partname, subform_name)
+
+        # Index existing by key field
+        existing_by_key: dict[str, dict[str, Any]] = {}
+        for record in existing:
+            key = str(record.get(key_field, "")).strip()
+            if key:
+                existing_by_key[key] = record
+
+        for desired in desired_records:
+            key_value = str(desired.get(key_field, "")).strip()
+            if not key_value:
+                continue
+
+            if key_value not in existing_by_key:
+                # New record → POST
+                self.post_subform(partname, subform_name, desired)
+                result["created"] += 1
+            else:
+                # Existing → compare and PATCH
+                current = existing_by_key[key_value]
+                changed: dict[str, Any] = {}
+
+                for field, new_value in desired.items():
+                    if field == key_field:
+                        continue  # Don't patch the key itself
+                    old_value = current.get(field)
+                    # Compare as strings for simplicity
+                    if str(new_value).strip() != str(old_value or "").strip():
+                        changed[field] = new_value
+
+                if changed:
+                    self.patch_subform(
+                        partname, subform_name, key_field, key_value, changed
+                    )
+                    result["updated"] += 1
+                else:
+                    result["skipped"] += 1
+
+        return result

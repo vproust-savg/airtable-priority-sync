@@ -21,8 +21,26 @@ from sync.logger_setup import (
     print_section,
     print_summary,
 )
-from sync.models import SyncAction, SyncDirection, SyncError, SyncRecord, SyncStats
+from sync.models import (
+    SubformResult,
+    SyncAction,
+    SyncDirection,
+    SyncError,
+    SyncRecord,
+    SyncStats,
+)
 from sync.priority_client import PriorityClient
+from sync.subform_mapping import (
+    ALLERGEN_SUBFORM_NAME,
+    BIN_SUBFORM_NAME,
+    PRICE_LIST_SUBFORM_NAME,
+    SHELF_LIFE_SUBFORM_NAME,
+    map_allergens,
+    map_bins,
+    map_price_lists,
+    map_shelf_lives,
+)
+from sync.sync_log_client import SyncLogClient
 from sync.utils import clean
 
 logger = logging.getLogger(__name__)
@@ -42,12 +60,15 @@ class ProductSyncEngine:
         direction: SyncDirection = SyncDirection.AIRTABLE_TO_PRIORITY,
         dry_run: bool = False,
         single_sku: str | None = None,
+        trigger: str = "manual",
     ) -> None:
         self.direction = direction
         self.dry_run = dry_run
         self.single_sku = single_sku
+        self.trigger = trigger
         self.airtable = AirtableClient()
         self.priority = PriorityClient()
+        self.sync_log = SyncLogClient()
         self.stats = SyncStats()
 
     # ── Main entry point ─────────────────────────────────────────────────
@@ -65,6 +86,12 @@ class ProductSyncEngine:
             )
 
         self.stats.end_time = datetime.now(timezone.utc)
+
+        # Log run to Airtable (non-blocking — failures don't affect sync result)
+        if not self.dry_run:
+            direction_label = "A→P" if self.direction == SyncDirection.AIRTABLE_TO_PRIORITY else "P→A"
+            self.sync_log.log_run(self.stats, direction=direction_label, trigger=self.trigger)
+
         return self.stats
 
     # ── Airtable → Priority ──────────────────────────────────────────────
@@ -119,6 +146,17 @@ class ProductSyncEngine:
         )
         print()
 
+        # Step 2b: Fetch shelf lives from separate Airtable table
+        print_section("Loading shelf lives from Airtable...")
+        try:
+            shelf_lives_by_sku = self.airtable.fetch_shelf_lives()
+            print_detail(f"Loaded shelf lives for {len(shelf_lives_by_sku)} SKUs.")
+        except Exception as e:
+            logger.error("Failed to fetch shelf lives: %s", e)
+            shelf_lives_by_sku = {}
+            print_detail(f"Warning: Could not load shelf lives ({e}). Continuing without.")
+        print()
+
         # Step 3: Process each record
         print_section("Syncing:")
         sync_results: list[SyncRecord] = []
@@ -128,6 +166,7 @@ class ProductSyncEngine:
             result = self._process_record(
                 record=record,
                 existing_partnames=existing_partnames,
+                shelf_lives_by_sku=shelf_lives_by_sku,
                 index=idx,
                 total=len(airtable_records),
             )
@@ -176,6 +215,7 @@ class ProductSyncEngine:
         self,
         record: dict[str, Any],
         existing_partnames: set[str],
+        shelf_lives_by_sku: dict[str, list[dict[str, Any]]],
         index: int,
         total: int,
     ) -> SyncRecord:
@@ -219,9 +259,9 @@ class ProductSyncEngine:
             logger.error("Mapping error for %s: %s", sku, e)
             return result
 
-        # Route: CREATE or UPDATE
+        # Route: CREATE or UPDATE (main LOGPART fields)
         if sku not in existing_partnames:
-            return self._create_product(
+            result = self._create_product(
                 sku=sku,
                 payload=priority_payload,
                 result=result,
@@ -229,13 +269,197 @@ class ProductSyncEngine:
                 total=total,
             )
         else:
-            return self._update_product(
+            result = self._update_product(
                 sku=sku,
                 payload=priority_payload,
                 result=result,
                 index=index,
                 total=total,
             )
+
+        # Sub-form sync — only if main LOGPART sync succeeded
+        if result.action in (SyncAction.CREATE, SyncAction.UPDATE, SyncAction.SKIP):
+            shelf_lives = shelf_lives_by_sku.get(sku, [])
+            self._sync_subforms(sku, fields, shelf_lives, result)
+
+        return result
+
+    # ── Sub-form sync ────────────────────────────────────────────────────
+
+    def _sync_subforms(
+        self,
+        sku: str,
+        airtable_fields: dict[str, Any],
+        shelf_life_records: list[dict[str, Any]],
+        result: SyncRecord,
+    ) -> None:
+        """
+        Sync all sub-forms for a product after main LOGPART sync.
+        Errors are logged but don't fail the overall product sync.
+        """
+        if self.dry_run:
+            # In dry run, just show what sub-forms would be synced
+            allergen_payload = map_allergens(airtable_fields)
+            if allergen_payload:
+                result.subform_results.append(SubformResult(
+                    subform="allergens", action="dry_run",
+                    detail=f"{len(allergen_payload)} fields",
+                ))
+
+            shelf_payloads = map_shelf_lives(shelf_life_records)
+            if shelf_payloads:
+                result.subform_results.append(SubformResult(
+                    subform="shelf_lives", action="dry_run",
+                    detail=f"{len(shelf_payloads)} entries",
+                ))
+
+            price_payloads = map_price_lists(airtable_fields)
+            if price_payloads:
+                result.subform_results.append(SubformResult(
+                    subform="price_lists", action="dry_run",
+                    detail=f"{len(price_payloads)} levels",
+                ))
+
+            bin_payload = map_bins(airtable_fields)
+            if bin_payload:
+                result.subform_results.append(SubformResult(
+                    subform="bins", action="dry_run",
+                    detail=f"{len(bin_payload)} fields",
+                ))
+            return
+
+        # 1. Allergens & Features (single-record sub-form)
+        self._sync_allergens(sku, airtable_fields, result)
+
+        # 2. Shelf Lives (multi-record sub-form)
+        self._sync_shelf_lives(sku, shelf_life_records, result)
+
+        # 3. Price Lists (multi-record sub-form)
+        self._sync_price_lists(sku, airtable_fields, result)
+
+        # 4. Bin Locations (single-record sub-form)
+        self._sync_bins(sku, airtable_fields, result)
+
+    def _sync_allergens(
+        self, sku: str, fields: dict[str, Any], result: SyncRecord
+    ) -> None:
+        """Sync allergens & features sub-form."""
+        try:
+            payload = map_allergens(fields)
+            if not payload:
+                return
+
+            res = self.priority.upsert_single_subform(
+                sku, ALLERGEN_SUBFORM_NAME, payload
+            )
+            result.subform_results.append(SubformResult(
+                subform="allergens",
+                action=res["action"],
+                detail=f"{res['fields_changed']} fields",
+            ))
+            logger.debug("Allergens for %s: %s", sku, res["action"])
+
+        except Exception as e:
+            logger.error("Allergen sub-form error for %s: %s", sku, e)
+            result.subform_results.append(SubformResult(
+                subform="allergens", action="error", detail=str(e)[:100],
+            ))
+            self.stats.error_details.append(SyncError(
+                sku=sku, action="SUBFORM",
+                message=f"allergens: {e}",
+                timestamp=datetime.now(timezone.utc),
+            ))
+
+    def _sync_shelf_lives(
+        self, sku: str, shelf_life_records: list[dict[str, Any]], result: SyncRecord
+    ) -> None:
+        """Sync shelf lives sub-form (multi-record)."""
+        try:
+            payloads = map_shelf_lives(shelf_life_records)
+            if not payloads:
+                return
+
+            res = self.priority.sync_multi_subform(
+                sku, SHELF_LIFE_SUBFORM_NAME, "TYPE", payloads
+            )
+            detail = f"c:{res['created']} u:{res['updated']} s:{res['skipped']}"
+            result.subform_results.append(SubformResult(
+                subform="shelf_lives", action="synced", detail=detail,
+            ))
+            logger.debug("Shelf lives for %s: %s", sku, detail)
+
+        except Exception as e:
+            logger.error("Shelf life sub-form error for %s: %s", sku, e)
+            result.subform_results.append(SubformResult(
+                subform="shelf_lives", action="error", detail=str(e)[:100],
+            ))
+            self.stats.error_details.append(SyncError(
+                sku=sku, action="SUBFORM",
+                message=f"shelf_lives: {e}",
+                timestamp=datetime.now(timezone.utc),
+            ))
+
+    def _sync_price_lists(
+        self, sku: str, fields: dict[str, Any], result: SyncRecord
+    ) -> None:
+        """Sync price lists sub-form (multi-record, up to 3 levels)."""
+        try:
+            payloads = map_price_lists(fields)
+            if not payloads:
+                return
+
+            res = self.priority.sync_multi_subform(
+                sku, PRICE_LIST_SUBFORM_NAME, "PLNAME", payloads
+            )
+            detail = f"c:{res['created']} u:{res['updated']} s:{res['skipped']}"
+            result.subform_results.append(SubformResult(
+                subform="price_lists", action="synced", detail=detail,
+            ))
+            logger.debug("Price lists for %s: %s", sku, detail)
+
+        except Exception as e:
+            logger.error("Price list sub-form error for %s: %s", sku, e)
+            result.subform_results.append(SubformResult(
+                subform="price_lists", action="error", detail=str(e)[:100],
+            ))
+            self.stats.error_details.append(SyncError(
+                sku=sku, action="SUBFORM",
+                message=f"price_lists: {e}",
+                timestamp=datetime.now(timezone.utc),
+            ))
+
+    def _sync_bins(
+        self, sku: str, fields: dict[str, Any], result: SyncRecord
+    ) -> None:
+        """Sync bin locations sub-form."""
+        try:
+            payload = map_bins(fields)
+            if not payload or (len(payload) == 1 and "WARHSNAME" in payload):
+                # Only default warehouse, no actual bin data
+                return
+
+            res = self.priority.upsert_single_subform(
+                sku, BIN_SUBFORM_NAME, payload
+            )
+            result.subform_results.append(SubformResult(
+                subform="bins",
+                action=res["action"],
+                detail=f"{res['fields_changed']} fields",
+            ))
+            logger.debug("Bins for %s: %s", sku, res["action"])
+
+        except Exception as e:
+            logger.error("Bin sub-form error for %s: %s", sku, e)
+            result.subform_results.append(SubformResult(
+                subform="bins", action="error", detail=str(e)[:100],
+            ))
+            self.stats.error_details.append(SyncError(
+                sku=sku, action="SUBFORM",
+                message=f"bins: {e}",
+                timestamp=datetime.now(timezone.utc),
+            ))
+
+    # ── Product create/update ─────────────────────────────────────────────
 
     def _create_product(
         self,

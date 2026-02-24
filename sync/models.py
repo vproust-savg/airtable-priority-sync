@@ -42,6 +42,14 @@ class FieldMapping(BaseModel):
 
 # ── Sync Records ─────────────────────────────────────────────────────────────
 
+class SubformResult(BaseModel):
+    """Tracks the sync result for a single sub-form."""
+
+    subform: str  # e.g. "allergens", "shelf_lives", "price_lists", "bins"
+    action: str = "skipped"  # "created", "updated", "skipped", "error"
+    detail: str = ""
+
+
 class SyncRecord(BaseModel):
     """Tracks the sync result for a single product."""
 
@@ -49,6 +57,7 @@ class SyncRecord(BaseModel):
     sku: str
     action: SyncAction = SyncAction.SKIP
     fields_changed: list[str] = Field(default_factory=list)
+    subform_results: list[SubformResult] = Field(default_factory=list)
     error_message: str = ""
     priority_udate: str | None = None  # UDATE from Priority response
 
