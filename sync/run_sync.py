@@ -3,11 +3,13 @@
 Entry point for Airtable ↔ Priority ERP Product Sync.
 
 Usage:
-    python -m sync.run_sync                          # Normal sync
-    python -m sync.run_sync --dry-run                # Preview without writing
-    python -m sync.run_sync --sku 14860              # Sync single product
-    python -m sync.run_sync --dry-run --sku 14860    # Preview single product
-    python -m sync.run_sync --server                 # Start webhook server
+    python -m sync.run_sync                              # Full sync (all fields + sub-forms)
+    python -m sync.run_sync --mode status                # Status-only sync (3 fields, no sub-forms)
+    python -m sync.run_sync --dry-run                    # Preview without writing
+    python -m sync.run_sync --mode status --dry-run      # Preview status-only sync
+    python -m sync.run_sync --sku 14860                  # Sync single product
+    python -m sync.run_sync --mode status --sku 14860    # Status-only for single product
+    python -m sync.run_sync --server                     # Start webhook server
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ import argparse
 import sys
 
 from sync.logger_setup import print_detail, setup_logging
-from sync.models import SyncDirection
+from sync.models import SyncDirection, SyncMode
 from sync.sync_engine import ProductSyncEngine
 
 
@@ -29,6 +31,12 @@ def main() -> int:
         choices=["airtable-to-priority", "priority-to-airtable", "both"],
         default="airtable-to-priority",
         help="Sync direction (default: airtable-to-priority)",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["full", "status"],
+        default="full",
+        help="Sync mode: 'full' (all fields + sub-forms) or 'status' (3 status fields only, much faster).",
     )
     parser.add_argument(
         "--dry-run",
@@ -79,6 +87,7 @@ def main() -> int:
             dry_run=args.dry_run,
             single_sku=args.sku,
             trigger="manual",
+            mode=SyncMode(args.mode),
         )
         stats = engine.run()
 

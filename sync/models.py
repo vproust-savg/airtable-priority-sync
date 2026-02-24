@@ -19,6 +19,11 @@ class SyncDirection(str, Enum):
     BIDIRECTIONAL = "both"
 
 
+class SyncMode(str, Enum):
+    FULL = "full"
+    STATUS = "status"  # Only sync Catalog Status, Inventory Status, Priority Status
+
+
 class SyncAction(str, Enum):
     CREATE = "CREATE"
     UPDATE = "UPDATE"

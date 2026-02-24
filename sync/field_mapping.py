@@ -213,6 +213,26 @@ PRODUCT_FIELD_MAP: list[FieldMapping] = [
 ]
 
 
+# ── Status-only mode (light sync) ────────────────────────────────────────────
+# Only these fields are fetched/mapped when running in STATUS mode.
+
+STATUS_PRIORITY_FIELDS = {"PARTNAME", "SPEC7", "SPEC8", "STATDES"}
+
+STATUS_FIELD_MAP: list[FieldMapping] = [
+    m for m in PRODUCT_FIELD_MAP if m.priority_field in STATUS_PRIORITY_FIELDS
+]
+
+STATUS_FIELDS_TO_FETCH: list[str] = [
+    "SKU Trim (EDI)",
+    "Catalog Status",
+    "Inventory Status",
+    "Priority Status",
+    "Last Airtable Modified",
+    "Last Synced to Priority",
+    "Priority UDATE",
+]
+
+
 # ── Lookup helpers ───────────────────────────────────────────────────────────
 
 # Quick lookup: Airtable field name → FieldMapping
@@ -284,17 +304,25 @@ def get_mapping_by_priority(field_name: str) -> FieldMapping | None:
 
 # ── Mapping functions ────────────────────────────────────────────────────────
 
-def map_airtable_to_priority(airtable_fields: dict[str, Any]) -> dict[str, Any]:
+def map_airtable_to_priority(
+    airtable_fields: dict[str, Any],
+    field_map: list[FieldMapping] | None = None,
+) -> dict[str, Any]:
     """
     Transform an Airtable record's fields dict into a Priority-ready payload.
     Skips fields with empty/None values (they won't be sent to Priority).
+
+    Args:
+        airtable_fields: Raw Airtable record fields.
+        field_map: Optional custom field map (e.g. STATUS_FIELD_MAP for light sync).
+                   Defaults to PRODUCT_FIELD_MAP (full sync).
 
     Returns:
         dict mapping Priority field names to cleaned values.
     """
     payload: dict[str, Any] = {}
 
-    for mapping in PRODUCT_FIELD_MAP:
+    for mapping in (field_map or PRODUCT_FIELD_MAP):
         raw_value = airtable_fields.get(mapping.airtable_field)
         transform_fn = TRANSFORMS[mapping.transform]
         cleaned = transform_fn(raw_value)

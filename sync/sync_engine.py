@@ -13,7 +13,12 @@ import requests
 
 from sync.airtable_client import AirtableClient
 from sync.config import AIRTABLE_FIELD_SKU
-from sync.field_mapping import build_patch_body, map_airtable_to_priority
+from sync.field_mapping import (
+    STATUS_FIELD_MAP,
+    STATUS_FIELDS_TO_FETCH,
+    build_patch_body,
+    map_airtable_to_priority,
+)
 from sync.logger_setup import (
     print_banner,
     print_detail,
@@ -26,6 +31,7 @@ from sync.models import (
     SyncAction,
     SyncDirection,
     SyncError,
+    SyncMode,
     SyncRecord,
     SyncStats,
 )
@@ -61,11 +67,13 @@ class ProductSyncEngine:
         dry_run: bool = False,
         single_sku: str | None = None,
         trigger: str = "manual",
+        mode: SyncMode = SyncMode.FULL,
     ) -> None:
         self.direction = direction
         self.dry_run = dry_run
         self.single_sku = single_sku
         self.trigger = trigger
+        self.mode = mode
         self.airtable = AirtableClient()
         self.priority = PriorityClient()
         self.sync_log = SyncLogClient()
@@ -89,6 +97,7 @@ class ProductSyncEngine:
 
         # Log run to Airtable (non-blocking — failures don't affect sync result)
         if not self.dry_run:
+            # Direction must match Airtable single-select options: "A→P" or "P→A"
             direction_label = "A→P" if self.direction == SyncDirection.AIRTABLE_TO_PRIORITY else "P→A"
             self.sync_log.log_run(self.stats, direction=direction_label, trigger=self.trigger)
 
@@ -99,25 +108,36 @@ class ProductSyncEngine:
     def _sync_airtable_to_priority(self) -> None:
         """Full sync flow: Airtable → Priority."""
 
-        label = "DRY RUN — Airtable → Priority" if self.dry_run else "Airtable → Priority"
+        is_status = self.mode == SyncMode.STATUS
+        mode_suffix = " (STATUS ONLY)" if is_status else ""
+        label = f"DRY RUN — Airtable → Priority{mode_suffix}" if self.dry_run else f"Airtable → Priority{mode_suffix}"
         print_banner(label)
+
+        # In STATUS mode, only fetch status fields from Airtable
+        fields_override = STATUS_FIELDS_TO_FETCH if is_status else None
 
         # Step 1: Fetch records from Airtable
         if self.single_sku:
             # When testing a specific SKU, fetch it directly (bypass sync view)
             print_section(f"Fetching SKU {self.single_sku} from Airtable...")
-            airtable_records = self.airtable.fetch_record_by_sku(self.single_sku)
+            airtable_records = self.airtable.fetch_record_by_sku(
+                self.single_sku, fields_override=fields_override,
+            )
             if not airtable_records:
                 # Fallback: try the sync view in case SKU is flagged
                 print_detail(f"SKU {self.single_sku} not found by direct lookup, trying sync view...")
-                airtable_records = self.airtable.fetch_changed_records()
+                airtable_records = self.airtable.fetch_changed_records(
+                    fields_override=fields_override,
+                )
                 airtable_records = [
                     r for r in airtable_records
                     if clean(r.get("fields", {}).get(AIRTABLE_FIELD_SKU)) == self.single_sku
                 ]
         else:
             print_section("Fetching changed records from Airtable...")
-            airtable_records = self.airtable.fetch_changed_records()
+            airtable_records = self.airtable.fetch_changed_records(
+                fields_override=fields_override,
+            )
 
         self.stats.total_fetched = len(airtable_records)
 
@@ -153,14 +173,19 @@ class ProductSyncEngine:
         print()
 
         # Step 2b: Fetch shelf lives from separate Airtable table
-        print_section("Loading shelf lives from Airtable...")
-        try:
-            shelf_lives_by_sku = self.airtable.fetch_shelf_lives()
-            print_detail(f"Loaded shelf lives for {len(shelf_lives_by_sku)} SKUs.")
-        except Exception as e:
-            logger.error("Failed to fetch shelf lives: %s", e)
-            shelf_lives_by_sku = {}
-            print_detail(f"Warning: Could not load shelf lives ({e}). Continuing without.")
+        # (skipped in STATUS mode — status fields don't need sub-form data)
+        if is_status:
+            shelf_lives_by_sku: dict[str, list[dict[str, Any]]] = {}
+            print_section("Skipping shelf lives (status-only mode).")
+        else:
+            print_section("Loading shelf lives from Airtable...")
+            try:
+                shelf_lives_by_sku = self.airtable.fetch_shelf_lives()
+                print_detail(f"Loaded shelf lives for {len(shelf_lives_by_sku)} SKUs.")
+            except Exception as e:
+                logger.error("Failed to fetch shelf lives: %s", e)
+                shelf_lives_by_sku = {}
+                print_detail(f"Warning: Could not load shelf lives ({e}). Continuing without.")
         print()
 
         # Step 3: Process each record
@@ -249,8 +274,10 @@ class ProductSyncEngine:
             return result
 
         # Map Airtable fields → Priority fields
+        # In STATUS mode, only map the 3 status fields + SKU
+        field_map = STATUS_FIELD_MAP if self.mode == SyncMode.STATUS else None
         try:
-            priority_payload = map_airtable_to_priority(fields)
+            priority_payload = map_airtable_to_priority(fields, field_map=field_map)
         except Exception as e:
             result.action = SyncAction.ERROR
             result.error_message = f"Mapping error: {e}"
@@ -284,7 +311,8 @@ class ProductSyncEngine:
             )
 
         # Sub-form sync — only if main LOGPART sync succeeded
-        if result.action in (SyncAction.CREATE, SyncAction.UPDATE, SyncAction.SKIP):
+        # (skipped entirely in STATUS mode — no sub-form fields involved)
+        if self.mode != SyncMode.STATUS and result.action in (SyncAction.CREATE, SyncAction.UPDATE, SyncAction.SKIP):
             shelf_lives = shelf_lives_by_sku.get(sku, [])
             self._sync_subforms(sku, fields, shelf_lives, result)
 

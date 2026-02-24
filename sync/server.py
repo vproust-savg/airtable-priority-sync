@@ -2,10 +2,11 @@
 FastAPI webhook server for triggering product sync.
 
 Endpoints:
-  GET  /health         → Health check (Railway uses this)
-  POST /webhook/sync   → Trigger sync via POST + Bearer header (automations)
-  GET  /webhook/sync   → Trigger sync via clickable URL with ?key= param
-  GET  /webhook/status → Last run result
+  GET  /health                → Health check (Railway uses this)
+  POST /webhook/sync          → Trigger full sync via POST + Bearer header (automations)
+  GET  /webhook/sync          → Trigger full sync via clickable URL with ?key= param
+  GET  /webhook/sync-status   → Trigger status-only sync (light mode) via clickable URL
+  GET  /webhook/status        → Last run result
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from typing import Any
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 
 from sync.config import LA_TIMEZONE, WEBHOOK_API_KEY
-from sync.models import SyncDirection
+from sync.models import SyncDirection, SyncMode
 from sync.sync_engine import ProductSyncEngine
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ def _verify_query_key(key: str | None) -> None:
         raise HTTPException(status_code=403, detail="Invalid API key.")
 
 
-def _run_sync_background() -> None:
+def _run_sync_background(mode: SyncMode = SyncMode.FULL) -> None:
     """Execute the sync in a background thread."""
     global _sync_running, _last_run  # noqa: PLW0603
 
@@ -72,12 +73,14 @@ def _run_sync_background() -> None:
             direction=SyncDirection.AIRTABLE_TO_PRIORITY,
             dry_run=False,
             trigger="webhook",
+            mode=mode,
         )
         stats = engine.run()
 
         now_la = datetime.now(timezone.utc).astimezone(LA_TIMEZONE)
         _last_run = {
             "completed_at": now_la.isoformat(),
+            "mode": mode.value,
             "status": "success" if stats.errors == 0 else "partial",
             "fetched": stats.total_fetched,
             "created": stats.created,
@@ -92,6 +95,7 @@ def _run_sync_background() -> None:
         now_la = datetime.now(timezone.utc).astimezone(LA_TIMEZONE)
         _last_run = {
             "completed_at": now_la.isoformat(),
+            "mode": mode.value,
             "status": "failed",
             "error": str(e),
         }
@@ -167,6 +171,38 @@ def trigger_sync_get(
     now_la = datetime.now(timezone.utc).astimezone(LA_TIMEZONE)
     return {
         "message": "Sync started",
+        "started_at": now_la.isoformat(),
+    }
+
+
+@app.get("/webhook/sync-status", status_code=202)
+def trigger_sync_status_get(
+    background_tasks: BackgroundTasks,
+    key: str | None = None,
+) -> dict[str, str]:
+    """
+    Trigger status-only sync (light mode) via clickable GET URL.
+    Only syncs Catalog Status, Inventory Status, and Priority Status.
+    Much faster than full sync — skips all sub-forms.
+    """
+    global _sync_running  # noqa: PLW0603
+
+    _verify_query_key(key)
+
+    with _sync_lock:
+        if _sync_running:
+            raise HTTPException(
+                status_code=409,
+                detail="Sync already in progress. Try again later.",
+            )
+        _sync_running = True
+
+    background_tasks.add_task(_run_sync_background, mode=SyncMode.STATUS)
+
+    now_la = datetime.now(timezone.utc).astimezone(LA_TIMEZONE)
+    return {
+        "message": "Status-only sync started",
+        "mode": "status",
         "started_at": now_la.isoformat(),
     }
 

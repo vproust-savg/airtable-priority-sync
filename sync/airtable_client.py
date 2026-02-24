@@ -49,26 +49,28 @@ class AirtableClient:
 
     # ── Read ─────────────────────────────────────────────────────────────
 
-    def fetch_changed_records(self) -> list[dict[str, Any]]:
+    def fetch_changed_records(
+        self, fields_override: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Fetch records from the 'Airtable > Priority API Sync' view.
         This view only returns records where Priority Sync Needed = "Yes".
 
-        Uses explicit field selection to fetch only the 31 fields we need
+        Uses explicit field selection to fetch only the fields we need
         (not all 400+ columns).
+
+        Args:
+            fields_override: Optional custom field list (e.g. STATUS_FIELDS_TO_FETCH
+                             for status-only mode). Defaults to full field list.
 
         Returns list of raw Airtable record dicts with 'id' and 'fields'.
         """
         records: list[dict[str, Any]] = []
         offset: str | None = None
 
-        # Build params with explicit field list
-        base_params: dict[str, Any] = {"view": AIRTABLE_SYNC_VIEW}
-        for field_name in AIRTABLE_FIELDS_TO_FETCH:
-            base_params.setdefault("fields[]", [])
-            # requests handles list params correctly
-        # Use a list of tuples for repeated 'fields[]' params
-        field_params = [("fields[]", f) for f in AIRTABLE_FIELDS_TO_FETCH]
+        # Use override or default field list
+        fields_to_fetch = fields_override or AIRTABLE_FIELDS_TO_FETCH
+        field_params = [("fields[]", f) for f in fields_to_fetch]
 
         for attempt in range(AIRTABLE_MAX_RETRIES):
             try:
@@ -207,15 +209,22 @@ class AirtableClient:
         )
         return by_sku
 
-    def fetch_record_by_sku(self, sku: str) -> list[dict[str, Any]]:
+    def fetch_record_by_sku(
+        self, sku: str, fields_override: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Fetch a single record by SKU, bypassing the sync view filter.
         Used for --sku testing so we can re-sync a specific product
         even if it's not currently flagged as needing sync.
 
+        Args:
+            sku: Product SKU to fetch.
+            fields_override: Optional custom field list for light sync modes.
+
         Returns list of raw Airtable record dicts (0 or 1 items).
         """
-        field_params = [(f"fields[]", f) for f in AIRTABLE_FIELDS_TO_FETCH]
+        fields_to_fetch = fields_override or AIRTABLE_FIELDS_TO_FETCH
+        field_params = [("fields[]", f) for f in fields_to_fetch]
         formula = f'{{{AIRTABLE_FIELD_SKU}}}="{sku}"'
         params = [("filterByFormula", formula)] + field_params
 
