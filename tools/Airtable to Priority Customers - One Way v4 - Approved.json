@@ -1,0 +1,5860 @@
+{
+  "name": "Airtable to Priority Customers - One Way v4 - Approved",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "f3b126d9-db95-4e95-9d6a-b508af24ea2c",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1072,
+        -464
+      ],
+      "id": "cbca97b5-8e82-4815-8ded-91a1acd3fefe",
+      "name": "Webhook",
+      "webhookId": "f3b126d9-db95-4e95-9d6a-b508af24ea2c"
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appr935iOTErWivM1",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbljnPqn35V3raJ1c",
+          "mode": "id"
+        },
+        "id": "={{ $node[\"Webhook\"].json.body.recordId }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -1088,
+        -752
+      ],
+      "id": "0770db13-2192-4849-8a31-d067f459a560",
+      "name": "Fetch Airtable Record",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "eiSQxyinjSGRrKCr",
+          "name": "Airtable account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step 1: Get the raw data from Airtable node\nconst rawData = $input.first().json;  // Grabs the single item output\n\n// Step 2: Extract fields safely (handles if missing)\nconst fields = rawData.fields || {};  // Default to empty object if no fields\n\n// Step 3: Pull specific fields with fallbacks\nconst priorityCustId = fields.priorityCustId || 'fallback-test-id';  // Avoid undefined; change to '' for real\nconst businessNameOutput = fields.businessNameOutput || 'Unknown Business';  // Fallback if empty\n\n// Step 4: Return as flat object for easy use later\nreturn {\n  priorityCustId: priorityCustId,\n  businessNameOutput: businessNameOutput,\n  // Add more fields here later, e.g., address: fields.address || ''\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -864,
+        -752
+      ],
+      "id": "cc90d450-d5fa-477b-9013-17944d26c80d",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        32
+      ],
+      "id": "75b43fe3-f5e2-45d1-aff5-0764d2200af8",
+      "name": "Test Trigger"
+    },
+    {
+      "parameters": {
+        "resource": "base",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -224,
+        32
+      ],
+      "id": "fa402879-5e17-45c2-8da7-c994c19fec82",
+      "name": "Get many bases",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "eiSQxyinjSGRrKCr",
+          "name": "Airtable account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "base",
+        "operation": "getSchema",
+        "base": {
+          "__rl": true,
+          "value": "appr935iOTErWivM1",
+          "mode": "list",
+          "cachedResultName": "Clean Data API TEST ",
+          "cachedResultUrl": "https://airtable.com/appr935iOTErWivM1"
+        }
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        32
+      ],
+      "id": "36d36b81-e480-424d-8e40-9b227c2b2c13",
+      "name": "Get base schema",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "eiSQxyinjSGRrKCr",
+          "name": "Airtable account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step 1: Get the raw data from Airtable node\nconst rawData = $input.first().json;  // Grabs the single item output\n\n// Debug 1: Log the full raw input to see what's coming in\nconsole.log(\"Raw input data:\", rawData);\n\n// Step 2: Check if data is nested under 'fields' or flat\nconst fields = rawData.fields || rawData;  // Use rawData if no 'fields' (handles flat output)\n\n// Debug 2: Log the fields object\nconsole.log(\"Fields object (nested or flat):\", fields);\n\n// Step 3: Pull specific fields with fallbacks (handle nested objects)\nconst priorityCustIdRaw = fields['Priority Cust. ID'] || 'fallback-test-id'; // Avoid undefined; change to '' for real\nconst priorityCustId = (typeof priorityCustIdRaw === 'object' && priorityCustIdRaw.value) ? priorityCustIdRaw.value : priorityCustIdRaw; // Pull .value if nested\n\n// Debug 3: Log priorityCustId extraction\nconsole.log(\"Priority Cust. ID raw:\", priorityCustIdRaw, \"Extracted:\", priorityCustId);\n\nconst businessNameOutputRaw = fields['Business Name Output'] || 'Unknown Business'; // Fallback if empty\nconst businessNameOutput = (typeof businessNameOutputRaw === 'object' && businessNameOutputRaw.value) ? businessNameOutputRaw.value : businessNameOutputRaw; // Pull .value if nested\n\n// Debug 4: Log businessNameOutput extraction\nconsole.log(\"Business Name Output raw:\", businessNameOutputRaw, \"Extracted:\", businessNameOutput);\n\n// Debug 5: Log if fallback or nest used\nif (!fields['Business Name Output']) console.log(\"Warning: Business Name Output missing—using fallback\");\nif (typeof businessNameOutputRaw === 'object') console.log(\"Note: Business Name Output was nested—extracted value successfully\");\n\n// Step 4: Return as flat object for easy use later\nreturn {\n  priorityCustId: priorityCustId,\n  businessNameOutput: businessNameOutput,\n  // Add more fields here later, e.g., addressRaw = fields['Billing Address Output'] || ''; address = (typeof addressRaw === 'object' && addressRaw.value) ? addressRaw.value : addressRaw;\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        32
+      ],
+      "id": "99a7716f-56c5-44e2-842e-4450ac55f80e",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appr935iOTErWivM1",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbljnPqn35V3raJ1c",
+          "mode": "id"
+        },
+        "id": "recgVBQjOuFBMWnVj",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        224,
+        32
+      ],
+      "id": "d9f5fe89-3103-49bb-b673-be9e7629c56d",
+      "name": "Fetch Test Record",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "eiSQxyinjSGRrKCr",
+          "name": "Airtable account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://us.priority-connect.online/odata/Priority/tabc8cae.ini/a071024/CUSTOMERS('{{ $node[\"Code in JavaScript1\"].json.priorityCustId }}')",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"IEEE754Compatible\": \"true\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        688,
+        32
+      ],
+      "id": "cb72fa1d-8d67-4b9c-9bde-b7d8844b4ac4",
+      "name": "Check Priority Customer",
+      "alwaysOutputData": false,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "EpHKLP8kjuo5tzn6",
+          "name": "Priority ERP"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "vproust@savorygourmet.com",
+        "subject": "Priority Sync Error",
+        "message": "Sync fail",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        656,
+        544
+      ],
+      "id": "3033d647-d676-4983-8e75-96a2865a14e5",
+      "name": "Send a message",
+      "webhookId": "875ec8c1-886b-4e28-86a4-f2080b1d7c33",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gsYg7KlXPZ9630Uz",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://us.priority-connect.online/odata/Priority/tabc8cae.ini/a071024/CUSTOMERS",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"IEEE754Compatible\": \"true\",\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"CUSTNAME\": \"{{ $node['Code in JavaScript1'].json.priorityCustId }}\",\n  \"CUSTDES\": \"{{ $node['Code in JavaScript1'].json.businessNameOutput }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        944,
+        256
+      ],
+      "id": "cf53159d-bc4c-4de3-9891-4ee94ab3369c",
+      "name": "Create Priority Customer",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "EpHKLP8kjuo5tzn6",
+          "name": "Priority ERP"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://us.priority-connect.online/odata/Priority/tabc8cae.ini/a071024/CUSTOMERS('{{ $node[\"Code in JavaScript1\"].json.priorityCustId }}')",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"IEEE754Compatible\": \"true\",\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"CUSTNAME\": \"{{ $node['Code in JavaScript1'].json.priorityCustId }}\",\n  \"CUSTDES\": \"{{ $node['Code in JavaScript1'].json.businessNameOutput }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        944,
+        -240
+      ],
+      "id": "7267c089-b9d2-41b2-aa46-a30dcc6cb09a",
+      "name": "Update Priority Customer",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "EpHKLP8kjuo5tzn6",
+          "name": "Priority ERP"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1296,
+        48
+      ],
+      "id": "c788b0a0-161c-4c6f-98a5-4b7f0b969d8a",
+      "name": "Merge Branches"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appr935iOTErWivM1",
+          "mode": "list",
+          "cachedResultName": "Clean Data API TEST ",
+          "cachedResultUrl": "https://airtable.com/appr935iOTErWivM1"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbljnPqn35V3raJ1c",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Last Synced to Priority": "={{ new Date().toISOString() }}",
+            "id": "={{ $node['Fetch Test Record'].json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Account Id & Business Name",
+              "displayName": "Account Id & Business Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Account ID",
+              "displayName": "Account ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Business Name Input",
+              "displayName": "Business Name Input",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Account Executive",
+              "displayName": "Account Executive",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Albert Supan",
+                  "value": "Albert Supan"
+                },
+                {
+                  "name": "Alberto Simonetti",
+                  "value": "Alberto Simonetti"
+                },
+                {
+                  "name": "Charles Gauguin",
+                  "value": "Charles Gauguin"
+                },
+                {
+                  "name": "David Stern",
+                  "value": "David Stern"
+                },
+                {
+                  "name": "Fabien Faucheux",
+                  "value": "Fabien Faucheux"
+                },
+                {
+                  "name": "Tricia Kidd",
+                  "value": "Tricia Kidd"
+                },
+                {
+                  "name": "House",
+                  "value": "House"
+                },
+                {
+                  "name": "Ian Delnavaz",
+                  "value": "Ian Delnavaz"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address Output",
+              "displayName": "Shipping Address Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Website Input",
+              "displayName": "Website Input",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "New Customer Pre-Approval",
+              "displayName": "New Customer Pre-Approval",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Yes",
+                  "value": "Yes"
+                },
+                {
+                  "name": "No",
+                  "value": "No"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Data Source",
+              "displayName": "Data Source",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Credit App",
+                  "value": "Credit App"
+                },
+                {
+                  "name": "FileMaker",
+                  "value": "FileMaker"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "TEST LOWER EMAIL",
+              "displayName": "TEST LOWER EMAIL",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Old_Submission Date",
+              "displayName": "Old_Submission Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "How did you hear about us?",
+              "displayName": "How did you hear about us?",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Zone",
+              "displayName": "Shipping Zone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "BeverlyHills",
+                  "value": "BeverlyHills"
+                },
+                {
+                  "name": "Disney",
+                  "value": "Disney"
+                },
+                {
+                  "name": "Hollywood",
+                  "value": "Hollywood"
+                },
+                {
+                  "name": "LA DTLA",
+                  "value": "LA DTLA"
+                },
+                {
+                  "name": "LA Pasadena",
+                  "value": "LA Pasadena"
+                },
+                {
+                  "name": "LA Silvrlake",
+                  "value": "LA Silvrlake"
+                },
+                {
+                  "name": "Los Angeles",
+                  "value": "Los Angeles"
+                },
+                {
+                  "name": "OC North",
+                  "value": "OC North"
+                },
+                {
+                  "name": "OC South",
+                  "value": "OC South"
+                },
+                {
+                  "name": "Palm Springs",
+                  "value": "Palm Springs"
+                },
+                {
+                  "name": "SantaBarbara",
+                  "value": "SantaBarbara"
+                },
+                {
+                  "name": "SD 1",
+                  "value": "SD 1"
+                },
+                {
+                  "name": "SD 2 East",
+                  "value": "SD 2 East"
+                },
+                {
+                  "name": "SD 2 West",
+                  "value": "SD 2 West"
+                },
+                {
+                  "name": "Southbay",
+                  "value": "Southbay"
+                },
+                {
+                  "name": "West Hollywd",
+                  "value": "West Hollywd"
+                },
+                {
+                  "name": "Westside",
+                  "value": "Westside"
+                },
+                {
+                  "name": "WS Malibu",
+                  "value": "WS Malibu"
+                },
+                {
+                  "name": "WS SM",
+                  "value": "WS SM"
+                },
+                {
+                  "name": "WS Venice",
+                  "value": "WS Venice"
+                },
+                {
+                  "name": "WS Culver",
+                  "value": "WS Culver"
+                },
+                {
+                  "name": "Hawaii",
+                  "value": "Hawaii"
+                },
+                {
+                  "name": "Freight",
+                  "value": "Freight"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Legal Type",
+              "displayName": "Legal Type",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "LLC",
+                  "value": "LLC"
+                },
+                {
+                  "name": "Corporation",
+                  "value": "Corporation"
+                },
+                {
+                  "name": "Partnership",
+                  "value": "Partnership"
+                },
+                {
+                  "name": "Sole Proprietor",
+                  "value": "Sole Proprietor"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Tax ID Number",
+              "displayName": "Tax ID Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Business Type",
+              "displayName": "Business Type",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Bagel Shop",
+                  "value": "Bagel Shop"
+                },
+                {
+                  "name": "Bakery/Pastry Shop",
+                  "value": "Bakery/Pastry Shop"
+                },
+                {
+                  "name": "Caterer",
+                  "value": "Caterer"
+                },
+                {
+                  "name": "Chocolatier",
+                  "value": "Chocolatier"
+                },
+                {
+                  "name": "Coffee Shop/Cafe",
+                  "value": "Coffee Shop/Cafe"
+                },
+                {
+                  "name": "Commissary Kitchen",
+                  "value": "Commissary Kitchen"
+                },
+                {
+                  "name": "Convention Center/Venue",
+                  "value": "Convention Center/Venue"
+                },
+                {
+                  "name": "Distributor",
+                  "value": "Distributor"
+                },
+                {
+                  "name": "Friends and Family",
+                  "value": "Friends and Family"
+                },
+                {
+                  "name": "Hotel",
+                  "value": "Hotel"
+                },
+                {
+                  "name": "Ice Cream/Gelato Shop",
+                  "value": "Ice Cream/Gelato Shop"
+                },
+                {
+                  "name": "Manufacturer",
+                  "value": "Manufacturer"
+                },
+                {
+                  "name": "Private Chef",
+                  "value": "Private Chef"
+                },
+                {
+                  "name": "Private Club",
+                  "value": "Private Club"
+                },
+                {
+                  "name": "Restaurant",
+                  "value": "Restaurant"
+                },
+                {
+                  "name": "Retail/Specialty Store",
+                  "value": "Retail/Specialty Store"
+                },
+                {
+                  "name": "School/University/Hospital",
+                  "value": "School/University/Hospital"
+                },
+                {
+                  "name": "Winery",
+                  "value": "Winery"
+                },
+                {
+                  "name": "Other",
+                  "value": "Other"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Are you part of Hilton? (2)",
+              "displayName": "Are you part of Hilton? (2)",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Yes",
+                  "value": "Yes"
+                },
+                {
+                  "name": "No",
+                  "value": "No"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Hilton Inncode (3)",
+              "displayName": "Hilton Inncode (3)",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Delete_Billing Address",
+              "displayName": "Delete_Billing Address",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Company Phone Input",
+              "displayName": "Company Phone Input",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Date Established",
+              "displayName": "Date Established",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Present Location Since",
+              "displayName": "Present Location Since",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Payment Method (1)",
+              "displayName": "Payment Method (1)",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "ACH",
+                  "value": "ACH"
+                },
+                {
+                  "name": "Wire",
+                  "value": "Wire"
+                },
+                {
+                  "name": "Transfer",
+                  "value": "Transfer"
+                },
+                {
+                  "name": "Cash",
+                  "value": "Cash"
+                },
+                {
+                  "name": "Check",
+                  "value": "Check"
+                },
+                {
+                  "name": "Credit Card",
+                  "value": "Credit Card"
+                },
+                {
+                  "name": "Debit Card",
+                  "value": "Debit Card"
+                },
+                {
+                  "name": "Zelle",
+                  "value": "Zelle"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "What items are you interested in?",
+              "displayName": "What items are you interested in?",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Date & State of Incorporation",
+              "displayName": "Date & State of Incorporation",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Parent Company Federal ID#",
+              "displayName": "Parent Company Federal ID#",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Parent Company Name",
+              "displayName": "Parent Company Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Parent Company Phone",
+              "displayName": "Parent Company Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Parent Company Address",
+              "displayName": "Parent Company Address",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "AP 1_First Name",
+              "displayName": "AP 1_First Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "AP 1_Last Name",
+              "displayName": "AP 1_Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "AP 1_Job Title",
+              "displayName": "AP 1_Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "AP 1_Email",
+              "displayName": "AP 1_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "AP 1_Phone",
+              "displayName": "AP 1_Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "AP 1_Phone Extension",
+              "displayName": "AP 1_Phone Extension",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Primary Purchaser_First Name",
+              "displayName": "Primary Purchaser_First Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Primary Purchaser_Last Name",
+              "displayName": "Primary Purchaser_Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Primary Purchaser_Job Title",
+              "displayName": "Primary Purchaser_Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Primary Purchaser_Email",
+              "displayName": "Primary Purchaser_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Primary Purchaser_Cellphone",
+              "displayName": "Primary Purchaser_Cellphone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Rekki Status",
+              "displayName": "Rekki Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Already set up",
+                  "value": "Already set up"
+                },
+                {
+                  "name": "Yes",
+                  "value": "Yes"
+                },
+                {
+                  "name": "No",
+                  "value": "No"
+                },
+                {
+                  "name": "Send me more information",
+                  "value": "Send me more information"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Purchase Order Software Y/N",
+              "displayName": "Purchase Order Software Y/N",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Yes",
+                  "value": "Yes"
+                },
+                {
+                  "name": "No",
+                  "value": "No"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "What is the name of the software?",
+              "displayName": "What is the name of the software?",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Digital Catalog Instructions",
+              "displayName": "Digital Catalog Instructions",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 1_First Name",
+              "displayName": "Contact 1_First Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 1_Last Name",
+              "displayName": "Contact 1_Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 1_Job Title",
+              "displayName": "Contact 1_Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 1_Email",
+              "displayName": "Contact 1_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 1_Cellphone",
+              "displayName": "Contact 1_Cellphone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 2_First Name",
+              "displayName": "Contact 2_First Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 2_Last Name",
+              "displayName": "Contact 2_Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 2_Job Title",
+              "displayName": "Contact 2_Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 2_Email",
+              "displayName": "Contact 2_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 2_Cellphone",
+              "displayName": "Contact 2_Cellphone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 3_First Name",
+              "displayName": "Contact 3_First Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 3_Last Name",
+              "displayName": "Contact 3_Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 3_Job Title",
+              "displayName": "Contact 3_Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 3_Email",
+              "displayName": "Contact 3_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 3_Cellphone",
+              "displayName": "Contact 3_Cellphone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 4_First Name",
+              "displayName": "Contact 4_First Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 4_Last Name",
+              "displayName": "Contact 4_Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 4_Job Title",
+              "displayName": "Contact 4_Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 4_Email",
+              "displayName": "Contact 4_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 4_Cellphone",
+              "displayName": "Contact 4_Cellphone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Days of Business",
+              "displayName": "Days of Business",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "options": [
+                {
+                  "name": "Monday",
+                  "value": "Monday"
+                },
+                {
+                  "name": "Tuesday",
+                  "value": "Tuesday"
+                },
+                {
+                  "name": "Wednesday",
+                  "value": "Wednesday"
+                },
+                {
+                  "name": "Thursday",
+                  "value": "Thursday"
+                },
+                {
+                  "name": "Friday",
+                  "value": "Friday"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Deliver After",
+              "displayName": "Deliver After",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "02:00 AM",
+                  "value": "02:00 AM"
+                },
+                {
+                  "name": "02:30 AM",
+                  "value": "02:30 AM"
+                },
+                {
+                  "name": "03:00 AM",
+                  "value": "03:00 AM"
+                },
+                {
+                  "name": "03:30 AM",
+                  "value": "03:30 AM"
+                },
+                {
+                  "name": "04:00 AM",
+                  "value": "04:00 AM"
+                },
+                {
+                  "name": "04:30 AM",
+                  "value": "04:30 AM"
+                },
+                {
+                  "name": "05:00 AM",
+                  "value": "05:00 AM"
+                },
+                {
+                  "name": "05:30 AM",
+                  "value": "05:30 AM"
+                },
+                {
+                  "name": "06:00 AM",
+                  "value": "06:00 AM"
+                },
+                {
+                  "name": "06:30 AM",
+                  "value": "06:30 AM"
+                },
+                {
+                  "name": "07:00 AM",
+                  "value": "07:00 AM"
+                },
+                {
+                  "name": "07:30 AM",
+                  "value": "07:30 AM"
+                },
+                {
+                  "name": "08:00 AM",
+                  "value": "08:00 AM"
+                },
+                {
+                  "name": "08:30 AM",
+                  "value": "08:30 AM"
+                },
+                {
+                  "name": "09:00 AM",
+                  "value": "09:00 AM"
+                },
+                {
+                  "name": "09:30 AM",
+                  "value": "09:30 AM"
+                },
+                {
+                  "name": "10:00 AM",
+                  "value": "10:00 AM"
+                },
+                {
+                  "name": "10:30 AM",
+                  "value": "10:30 AM"
+                },
+                {
+                  "name": "11:00 AM",
+                  "value": "11:00 AM"
+                },
+                {
+                  "name": "11:30 AM",
+                  "value": "11:30 AM"
+                },
+                {
+                  "name": "11:45 AM",
+                  "value": "11:45 AM"
+                },
+                {
+                  "name": "12:00 PM",
+                  "value": "12:00 PM"
+                },
+                {
+                  "name": "01:00 PM",
+                  "value": "01:00 PM"
+                },
+                {
+                  "name": "01:30 PM",
+                  "value": "01:30 PM"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Deliver Before",
+              "displayName": "Deliver Before",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "05:00 AM",
+                  "value": "05:00 AM"
+                },
+                {
+                  "name": "05:30 AM",
+                  "value": "05:30 AM"
+                },
+                {
+                  "name": "06:00 AM",
+                  "value": "06:00 AM"
+                },
+                {
+                  "name": "06:30 AM",
+                  "value": "06:30 AM"
+                },
+                {
+                  "name": "07:00 AM",
+                  "value": "07:00 AM"
+                },
+                {
+                  "name": "07:30 AM",
+                  "value": "07:30 AM"
+                },
+                {
+                  "name": "08:00 AM",
+                  "value": "08:00 AM"
+                },
+                {
+                  "name": "08:30 AM",
+                  "value": "08:30 AM"
+                },
+                {
+                  "name": "09:00 AM",
+                  "value": "09:00 AM"
+                },
+                {
+                  "name": "09:30 AM",
+                  "value": "09:30 AM"
+                },
+                {
+                  "name": "10:00 AM",
+                  "value": "10:00 AM"
+                },
+                {
+                  "name": "10:30 AM",
+                  "value": "10:30 AM"
+                },
+                {
+                  "name": "11:00 AM",
+                  "value": "11:00 AM"
+                },
+                {
+                  "name": "11:30 AM",
+                  "value": "11:30 AM"
+                },
+                {
+                  "name": " 12:00 PM",
+                  "value": " 12:00 PM"
+                },
+                {
+                  "name": "12:30 PM",
+                  "value": "12:30 PM"
+                },
+                {
+                  "name": "01:00 PM",
+                  "value": "01:00 PM"
+                },
+                {
+                  "name": "01:30 PM",
+                  "value": "01:30 PM"
+                },
+                {
+                  "name": "02:00 PM",
+                  "value": "02:00 PM"
+                },
+                {
+                  "name": "02:30 PM",
+                  "value": "02:30 PM"
+                },
+                {
+                  "name": "03:00 PM",
+                  "value": "03:00 PM"
+                },
+                {
+                  "name": "03:30 PM",
+                  "value": "03:30 PM"
+                },
+                {
+                  "name": "04:00 PM",
+                  "value": "04:00 PM"
+                },
+                {
+                  "name": "04:30 PM",
+                  "value": "04:30 PM"
+                },
+                {
+                  "name": "05:00 PM",
+                  "value": "05:00 PM"
+                },
+                {
+                  "name": "05:30 PM",
+                  "value": "05:30 PM"
+                },
+                {
+                  "name": "06:00 PM",
+                  "value": "06:00 PM"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Can you share a key or a code with our driver?",
+              "displayName": "Can you share a key or a code with our driver?",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "No",
+                  "value": "No"
+                },
+                {
+                  "name": "Yes",
+                  "value": "Yes"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Instructions_Delivery",
+              "displayName": "Instructions_Delivery",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 1_First Name",
+              "displayName": "Owner 1_First Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 1_Last Name",
+              "displayName": "Owner 1_Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 1_Job Title",
+              "displayName": "Owner 1_Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 1_SSN#",
+              "displayName": "Owner 1_SSN#",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 1_Email",
+              "displayName": "Owner 1_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 1_Phone Number",
+              "displayName": "Owner 1_Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 1_Residential Address",
+              "displayName": "Owner 1_Residential Address",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Bank Name",
+              "displayName": "Bank Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Bank_Account Number",
+              "displayName": "Bank_Account Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Bank_Address",
+              "displayName": "Bank_Address",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Bank_Contact",
+              "displayName": "Bank_Contact",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Bank_Email",
+              "displayName": "Bank_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Bank_Phone Number",
+              "displayName": "Bank_Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Name",
+              "displayName": "Reference 1_Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Account Number",
+              "displayName": "Reference 1_Account Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Email",
+              "displayName": "Reference 1_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Phone",
+              "displayName": "Reference 1_Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Name",
+              "displayName": "Reference 2_Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Account Number",
+              "displayName": "Reference 2_Account Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Email",
+              "displayName": "Reference 2_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Phone",
+              "displayName": "Reference 2_Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Name",
+              "displayName": "Reference 3_Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Account Number",
+              "displayName": "Reference 3_Account Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Email",
+              "displayName": "Reference 3_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Phone",
+              "displayName": "Reference 3_Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Old_Terms and Conditions 1",
+              "displayName": "Old_Terms and Conditions 1",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Accepted",
+                  "value": "Accepted"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Old_Terms and Conditions 2",
+              "displayName": "Old_Terms and Conditions 2",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Accepted",
+                  "value": "Accepted"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Old_Terms and Conditions 3",
+              "displayName": "Old_Terms and Conditions 3",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Accepted",
+                  "value": "Accepted"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Credit Applicant_First Name",
+              "displayName": "Credit Applicant_First Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Credit Applicant_Last Name",
+              "displayName": "Credit Applicant_Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Credit Applicant_Job Title",
+              "displayName": "Credit Applicant_Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Credit Applicant_Email",
+              "displayName": "Credit Applicant_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Old_Credit Applicant_Signature",
+              "displayName": "Old_Credit Applicant_Signature",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Price List",
+              "displayName": "Price List",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Level 1 - Wholesale",
+                  "value": "Level 1 - Wholesale"
+                },
+                {
+                  "name": "Level 2 - Hotel Group",
+                  "value": "Level 2 - Hotel Group"
+                },
+                {
+                  "name": "Level 3 - Distributor",
+                  "value": "Level 3 - Distributor"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Part of a Group?",
+              "displayName": "Part of a Group?",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Yes",
+                  "value": "Yes"
+                },
+                {
+                  "name": "No",
+                  "value": "No"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Credit Limit",
+              "displayName": "Credit Limit",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Liability Limit",
+              "displayName": "Liability Limit",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Payment Terms",
+              "displayName": "Payment Terms",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Net 0 Days",
+                  "value": "Net 0 Days"
+                },
+                {
+                  "name": "Net 7 Days",
+                  "value": "Net 7 Days"
+                },
+                {
+                  "name": "Net 15 Days",
+                  "value": "Net 15 Days"
+                },
+                {
+                  "name": "Net 30 Days",
+                  "value": "Net 30 Days"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Carrier Account Number (5)",
+              "displayName": "Carrier Account Number (5)",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing Address_Line 1 Input",
+              "displayName": "Billing Address_Line 1 Input",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing Address_Line 2 Input",
+              "displayName": "Billing Address_Line 2 Input",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Delete_Verified Billing Address",
+              "displayName": "Delete_Verified Billing Address",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing Address_City Input",
+              "displayName": "Billing Address_City Input",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing Address_State",
+              "displayName": "Billing Address_State",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "CA",
+                  "value": "CA"
+                },
+                {
+                  "name": "PA",
+                  "value": "PA"
+                },
+                {
+                  "name": "TX",
+                  "value": "TX"
+                },
+                {
+                  "name": "IL",
+                  "value": "IL"
+                },
+                {
+                  "name": "AZ",
+                  "value": "AZ"
+                },
+                {
+                  "name": "MI",
+                  "value": "MI"
+                },
+                {
+                  "name": "HI",
+                  "value": "HI"
+                },
+                {
+                  "name": "NY",
+                  "value": "NY"
+                },
+                {
+                  "name": "FL",
+                  "value": "FL"
+                },
+                {
+                  "name": "WA",
+                  "value": "WA"
+                },
+                {
+                  "name": "UT",
+                  "value": "UT"
+                },
+                {
+                  "name": "NJ",
+                  "value": "NJ"
+                },
+                {
+                  "name": "NC",
+                  "value": "NC"
+                },
+                {
+                  "name": "ID",
+                  "value": "ID"
+                },
+                {
+                  "name": "MT",
+                  "value": "MT"
+                },
+                {
+                  "name": "NV",
+                  "value": "NV"
+                },
+                {
+                  "name": "OR",
+                  "value": "OR"
+                },
+                {
+                  "name": "ME",
+                  "value": "ME"
+                },
+                {
+                  "name": "WY",
+                  "value": "WY"
+                },
+                {
+                  "name": "MA",
+                  "value": "MA"
+                },
+                {
+                  "name": "TN",
+                  "value": "TN"
+                },
+                {
+                  "name": "OK",
+                  "value": "OK"
+                },
+                {
+                  "name": "PR",
+                  "value": "PR"
+                },
+                {
+                  "name": "CO",
+                  "value": "CO"
+                },
+                {
+                  "name": "Tx",
+                  "value": "Tx"
+                },
+                {
+                  "name": "Ca",
+                  "value": "Ca"
+                },
+                {
+                  "name": "MN",
+                  "value": "MN"
+                },
+                {
+                  "name": "CA ",
+                  "value": "CA "
+                },
+                {
+                  "name": "MO",
+                  "value": "MO"
+                },
+                {
+                  "name": "Guam",
+                  "value": "Guam"
+                },
+                {
+                  "name": "NM",
+                  "value": "NM"
+                },
+                {
+                  "name": "Maui",
+                  "value": "Maui"
+                },
+                {
+                  "name": "NE",
+                  "value": "NE"
+                },
+                {
+                  "name": "PUERTO RICO",
+                  "value": "PUERTO RICO"
+                },
+                {
+                  "name": "GA",
+                  "value": "GA"
+                },
+                {
+                  "name": "WI",
+                  "value": "WI"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing Address_Zip Code",
+              "displayName": "Billing Address_Zip Code",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "DELETE?_Company Email",
+              "displayName": "DELETE?_Company Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "AP 2_First Name",
+              "displayName": "AP 2_First Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "AP 2_Last Name",
+              "displayName": "AP 2_Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "AP 2_Job Title",
+              "displayName": "AP 2_Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "AP 2_Email",
+              "displayName": "AP 2_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "AP 2_Phone",
+              "displayName": "AP 2_Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Company Email AP",
+              "displayName": "Company Email AP",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Active/Inactive",
+              "displayName": "Active/Inactive",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Active",
+                  "value": "Active"
+                },
+                {
+                  "name": "Inactive",
+                  "value": "Inactive"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "OLD KEEP_Additional Contacts",
+              "displayName": "OLD KEEP_Additional Contacts",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing Address_Attn Input",
+              "displayName": "Billing Address_Attn Input",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing_Legal Name Input",
+              "displayName": "Billing_Legal Name Input",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Fillout_Internal Review",
+              "displayName": "Fillout_Internal Review",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Creation Date",
+              "displayName": "Creation Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Fillout Form (from Contacts)",
+              "displayName": "Fillout Form (from Contacts)",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Approved by Sales Rep",
+              "displayName": "Approved by Sales Rep",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Yes",
+                  "value": "Yes"
+                },
+                {
+                  "name": "No",
+                  "value": "No"
+                },
+                {
+                  "name": "Need more Information",
+                  "value": "Need more Information"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address_Line 1 Input",
+              "displayName": "Shipping Address_Line 1 Input",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address_Line 2 Input",
+              "displayName": "Shipping Address_Line 2 Input",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address_Attn Input",
+              "displayName": "Shipping Address_Attn Input",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address_City Input",
+              "displayName": "Shipping Address_City Input",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address_Zip Code",
+              "displayName": "Shipping Address_Zip Code",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address_State",
+              "displayName": "Shipping Address_State",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "AZ",
+                  "value": "AZ"
+                },
+                {
+                  "name": "CA",
+                  "value": "CA"
+                },
+                {
+                  "name": "CO",
+                  "value": "CO"
+                },
+                {
+                  "name": "CT",
+                  "value": "CT"
+                },
+                {
+                  "name": "FL",
+                  "value": "FL"
+                },
+                {
+                  "name": "GA",
+                  "value": "GA"
+                },
+                {
+                  "name": "HI",
+                  "value": "HI"
+                },
+                {
+                  "name": "ID",
+                  "value": "ID"
+                },
+                {
+                  "name": "IL",
+                  "value": "IL"
+                },
+                {
+                  "name": "MA",
+                  "value": "MA"
+                },
+                {
+                  "name": "MAUI",
+                  "value": "MAUI"
+                },
+                {
+                  "name": "ME",
+                  "value": "ME"
+                },
+                {
+                  "name": "MI",
+                  "value": "MI"
+                },
+                {
+                  "name": "MN",
+                  "value": "MN"
+                },
+                {
+                  "name": "MO",
+                  "value": "MO"
+                },
+                {
+                  "name": "MT",
+                  "value": "MT"
+                },
+                {
+                  "name": "NC",
+                  "value": "NC"
+                },
+                {
+                  "name": "NE",
+                  "value": "NE"
+                },
+                {
+                  "name": "NJ",
+                  "value": "NJ"
+                },
+                {
+                  "name": "NM",
+                  "value": "NM"
+                },
+                {
+                  "name": "NV",
+                  "value": "NV"
+                },
+                {
+                  "name": "NY",
+                  "value": "NY"
+                },
+                {
+                  "name": "OK",
+                  "value": "OK"
+                },
+                {
+                  "name": "OR",
+                  "value": "OR"
+                },
+                {
+                  "name": "PA",
+                  "value": "PA"
+                },
+                {
+                  "name": "PR",
+                  "value": "PR"
+                },
+                {
+                  "name": "PUERTO RICO",
+                  "value": "PUERTO RICO"
+                },
+                {
+                  "name": "TN",
+                  "value": "TN"
+                },
+                {
+                  "name": "TX",
+                  "value": "TX"
+                },
+                {
+                  "name": "UT",
+                  "value": "UT"
+                },
+                {
+                  "name": "VA",
+                  "value": "VA"
+                },
+                {
+                  "name": "WA",
+                  "value": "WA"
+                },
+                {
+                  "name": "WI",
+                  "value": "WI"
+                },
+                {
+                  "name": "WY",
+                  "value": "WY"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "AP 2_Phone Extension",
+              "displayName": "AP 2_Phone Extension",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Products Needed",
+              "displayName": "Products Needed",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "options": [
+                {
+                  "name": "Everything",
+                  "value": "Everything"
+                },
+                {
+                  "name": "Beverages",
+                  "value": "Beverages"
+                },
+                {
+                  "name": "Bread",
+                  "value": "Bread"
+                },
+                {
+                  "name": "Butter & Dairy",
+                  "value": "Butter & Dairy"
+                },
+                {
+                  "name": "Caviar",
+                  "value": "Caviar"
+                },
+                {
+                  "name": "Charcuterie",
+                  "value": "Charcuterie"
+                },
+                {
+                  "name": "Cheeses",
+                  "value": "Cheeses"
+                },
+                {
+                  "name": "Chocolate & Praline",
+                  "value": "Chocolate & Praline"
+                },
+                {
+                  "name": "Chocolate Decor",
+                  "value": "Chocolate Decor"
+                },
+                {
+                  "name": "Condiments & Sauces",
+                  "value": "Condiments & Sauces"
+                },
+                {
+                  "name": "Dried Fruits & Nuts",
+                  "value": "Dried Fruits & Nuts"
+                },
+                {
+                  "name": "Duck",
+                  "value": "Duck"
+                },
+                {
+                  "name": "Extra Jams",
+                  "value": "Extra Jams"
+                },
+                {
+                  "name": "Filling & Decor",
+                  "value": "Filling & Decor"
+                },
+                {
+                  "name": "Flavoring Pearls",
+                  "value": "Flavoring Pearls"
+                },
+                {
+                  "name": "Flours",
+                  "value": "Flours"
+                },
+                {
+                  "name": "Freeze-Dried Fruits",
+                  "value": "Freeze-Dried Fruits"
+                },
+                {
+                  "name": "Fries & Veggies",
+                  "value": "Fries & Veggies"
+                },
+                {
+                  "name": "Frozen Appetizers",
+                  "value": "Frozen Appetizers"
+                },
+                {
+                  "name": "Fruit Purees",
+                  "value": "Fruit Purees"
+                },
+                {
+                  "name": "Glaze & Inclusion",
+                  "value": "Glaze & Inclusion"
+                },
+                {
+                  "name": "Gourmet Snacks",
+                  "value": "Gourmet Snacks"
+                },
+                {
+                  "name": "Honey & Sweet",
+                  "value": "Honey & Sweet"
+                },
+                {
+                  "name": "Oils & Vinegars",
+                  "value": "Oils & Vinegars"
+                },
+                {
+                  "name": "Olives & Vegetables",
+                  "value": "Olives & Vegetables"
+                },
+                {
+                  "name": "Pasta & Grains",
+                  "value": "Pasta & Grains"
+                },
+                {
+                  "name": "Paste & Candied Fruits",
+                  "value": "Paste & Candied Fruits"
+                },
+                {
+                  "name": "Pastries & Desserts",
+                  "value": "Pastries & Desserts"
+                },
+                {
+                  "name": "Salt & Spices",
+                  "value": "Salt & Spices"
+                },
+                {
+                  "name": "Seafood",
+                  "value": "Seafood"
+                },
+                {
+                  "name": "Tart Shells & Dough",
+                  "value": "Tart Shells & Dough"
+                },
+                {
+                  "name": "Technical Ingredients",
+                  "value": "Technical Ingredients"
+                },
+                {
+                  "name": "Truffles & Mushrooms",
+                  "value": "Truffles & Mushrooms"
+                },
+                {
+                  "name": "Vanilla & Flavoring",
+                  "value": "Vanilla & Flavoring"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Digital Catalog Template",
+              "displayName": "Digital Catalog Template",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 1_Department",
+              "displayName": "Contact 1_Department",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Culinary",
+                  "value": "Culinary"
+                },
+                {
+                  "name": "Pastry & Baking",
+                  "value": "Pastry & Baking"
+                },
+                {
+                  "name": "Beverage",
+                  "value": "Beverage"
+                },
+                {
+                  "name": "Purchasing",
+                  "value": "Purchasing"
+                },
+                {
+                  "name": "Management/ F&B",
+                  "value": "Management/ F&B"
+                },
+                {
+                  "name": "Accounting",
+                  "value": "Accounting"
+                },
+                {
+                  "name": "Other",
+                  "value": "Other"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Cleanup Email",
+              "displayName": "Cleanup Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Receiver_First Name",
+              "displayName": "Receiver_First Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Receiver_Last Name",
+              "displayName": "Receiver_Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Receiver_Email",
+              "displayName": "Receiver_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Receiver_Cellphone",
+              "displayName": "Receiver_Cellphone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Primary Purchaser_Department",
+              "displayName": "Primary Purchaser_Department",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Culinary",
+                  "value": "Culinary"
+                },
+                {
+                  "name": "Pastry & Baking",
+                  "value": "Pastry & Baking"
+                },
+                {
+                  "name": "Beverage",
+                  "value": "Beverage"
+                },
+                {
+                  "name": "Purchasing",
+                  "value": "Purchasing"
+                },
+                {
+                  "name": "Management/F&B",
+                  "value": "Management/F&B"
+                },
+                {
+                  "name": "Accounting",
+                  "value": "Accounting"
+                },
+                {
+                  "name": "Other",
+                  "value": "Other"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 2_Department",
+              "displayName": "Contact 2_Department",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Culinary",
+                  "value": "Culinary"
+                },
+                {
+                  "name": "Pastry & Baking",
+                  "value": "Pastry & Baking"
+                },
+                {
+                  "name": "Beverage",
+                  "value": "Beverage"
+                },
+                {
+                  "name": "Purchasing",
+                  "value": "Purchasing"
+                },
+                {
+                  "name": "Management/F&B",
+                  "value": "Management/F&B"
+                },
+                {
+                  "name": "Accounting",
+                  "value": "Accounting"
+                },
+                {
+                  "name": "Other",
+                  "value": "Other"
+                },
+                {
+                  "name": "Accounting, Accounting, Accounting",
+                  "value": "Accounting, Accounting, Accounting"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 3_Department",
+              "displayName": "Contact 3_Department",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Culinary",
+                  "value": "Culinary"
+                },
+                {
+                  "name": "Pastry & Baking",
+                  "value": "Pastry & Baking"
+                },
+                {
+                  "name": "Beverage",
+                  "value": "Beverage"
+                },
+                {
+                  "name": "Purchasing",
+                  "value": "Purchasing"
+                },
+                {
+                  "name": "Management/F&B",
+                  "value": "Management/F&B"
+                },
+                {
+                  "name": "Accounting",
+                  "value": "Accounting"
+                },
+                {
+                  "name": "Other",
+                  "value": "Other"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 4_Department",
+              "displayName": "Contact 4_Department",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Culinary",
+                  "value": "Culinary"
+                },
+                {
+                  "name": "Pastry & Baking",
+                  "value": "Pastry & Baking"
+                },
+                {
+                  "name": "Beverage",
+                  "value": "Beverage"
+                },
+                {
+                  "name": "Purchasing",
+                  "value": "Purchasing"
+                },
+                {
+                  "name": "Management/F&B",
+                  "value": "Management/F&B"
+                },
+                {
+                  "name": "Accounting",
+                  "value": "Accounting"
+                },
+                {
+                  "name": "Other",
+                  "value": "Other"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Submission Date",
+              "displayName": "Submission Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Credit Applicant_Department",
+              "displayName": "Credit Applicant_Department",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Culinary",
+                  "value": "Culinary"
+                },
+                {
+                  "name": "Pastry & Baking",
+                  "value": "Pastry & Baking"
+                },
+                {
+                  "name": "Beverage",
+                  "value": "Beverage"
+                },
+                {
+                  "name": "Purchasing",
+                  "value": "Purchasing"
+                },
+                {
+                  "name": "Management/F&B",
+                  "value": "Management/F&B"
+                },
+                {
+                  "name": "Accounting",
+                  "value": "Accounting"
+                },
+                {
+                  "name": "Other",
+                  "value": "Other"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Terms_$250",
+              "displayName": "Terms_$250",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Terms_Order By 5PM",
+              "displayName": "Terms_Order By 5PM",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Terms_Sales",
+              "displayName": "Terms_Sales",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing_Instructions",
+              "displayName": "Billing_Instructions",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "OLD KEEP Company Email AP",
+              "displayName": "OLD KEEP Company Email AP",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address_Name",
+              "displayName": "Shipping Address_Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Parent Record (from Consolidation Terms)",
+              "displayName": "Parent Record (from Consolidation Terms)",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Main Delivery Method",
+              "displayName": "Main Delivery Method",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Savory Gourmet",
+                  "value": "Savory Gourmet"
+                },
+                {
+                  "name": "FedEx",
+                  "value": "FedEx"
+                },
+                {
+                  "name": "FedEx 2nd",
+                  "value": "FedEx 2nd"
+                },
+                {
+                  "name": "FedEx Freight",
+                  "value": "FedEx Freight"
+                },
+                {
+                  "name": "FedEx Ground",
+                  "value": "FedEx Ground"
+                },
+                {
+                  "name": "FedEx Priority",
+                  "value": "FedEx Priority"
+                },
+                {
+                  "name": "FedEx Saturday",
+                  "value": "FedEx Saturday"
+                },
+                {
+                  "name": "FedEx Standard",
+                  "value": "FedEx Standard"
+                },
+                {
+                  "name": "Freight",
+                  "value": "Freight"
+                },
+                {
+                  "name": "Pick Up",
+                  "value": "Pick Up"
+                },
+                {
+                  "name": "Fotovat Motor Freight",
+                  "value": "Fotovat Motor Freight"
+                },
+                {
+                  "name": "Numark ",
+                  "value": "Numark "
+                },
+                {
+                  "name": "Solfi Group",
+                  "value": "Solfi Group"
+                },
+                {
+                  "name": "Solfi Logistics",
+                  "value": "Solfi Logistics"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Created By",
+              "displayName": "Created By",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "DELETE?_Status",
+              "displayName": "DELETE?_Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Credit App Needed",
+                  "value": "Credit App Needed"
+                },
+                {
+                  "name": "Information Update Needed",
+                  "value": "Information Update Needed"
+                },
+                {
+                  "name": "Not Needed",
+                  "value": "Not Needed"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 1_SSN_Encrypted",
+              "displayName": "Owner 1_SSN_Encrypted",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "KEEP Old_Internal Notes",
+              "displayName": "KEEP Old_Internal Notes",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Phone Review",
+              "displayName": "Phone Review",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Contact Transfer",
+              "displayName": "Contact Transfer",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "New_Customer Contacts",
+              "displayName": "New_Customer Contacts",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Record ID",
+              "displayName": "Record ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Receiver_Department",
+              "displayName": "Receiver_Department",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Culinary",
+                  "value": "Culinary"
+                },
+                {
+                  "name": "Pastry & Baking",
+                  "value": "Pastry & Baking"
+                },
+                {
+                  "name": "Beverage",
+                  "value": "Beverage"
+                },
+                {
+                  "name": "Purchasing",
+                  "value": "Purchasing"
+                },
+                {
+                  "name": "Management/ F&B",
+                  "value": "Management/ F&B"
+                },
+                {
+                  "name": "Accounting",
+                  "value": "Accounting"
+                },
+                {
+                  "name": "Other",
+                  "value": "Other"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Receiver_Job Title",
+              "displayName": "Receiver_Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Customer Update - Send Email",
+              "displayName": "Customer Update - Send Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Yes",
+                  "value": "Yes"
+                },
+                {
+                  "name": "No",
+                  "value": "No"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Mailing Adresses",
+              "displayName": "Mailing Adresses",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Fillout_Customer Info Update",
+              "displayName": "Fillout_Customer Info Update",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Internal Review",
+              "displayName": "Internal Review",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Customer Update",
+              "displayName": "Customer Update",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Owner 2_First Name",
+              "displayName": "Owner 2_First Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 2_Last Name",
+              "displayName": "Owner 2_Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 2_Job Title",
+              "displayName": "Owner 2_Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 2_Email",
+              "displayName": "Owner 2_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 2_Phone Number",
+              "displayName": "Owner 2_Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 2_Residential Address",
+              "displayName": "Owner 2_Residential Address",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Petrovich Set Up",
+              "displayName": "Petrovich Set Up",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Last Modified By",
+              "displayName": "Last Modified By",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Last Modified Time",
+              "displayName": "Last Modified Time",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Created",
+              "displayName": "Created",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "General Info %",
+              "displayName": "General Info %",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "OLD KEEP_Company Email",
+              "displayName": "OLD KEEP_Company Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 5_First Name",
+              "displayName": "Contact 5_First Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 5_Last Name",
+              "displayName": "Contact 5_Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 5_Job Title",
+              "displayName": "Contact 5_Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 5_Department",
+              "displayName": "Contact 5_Department",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Culinary",
+                  "value": "Culinary"
+                },
+                {
+                  "name": "Pastry & Baking",
+                  "value": "Pastry & Baking"
+                },
+                {
+                  "name": "Beverage",
+                  "value": "Beverage"
+                },
+                {
+                  "name": "Purchasing",
+                  "value": "Purchasing"
+                },
+                {
+                  "name": "Management/F&B",
+                  "value": "Management/F&B"
+                },
+                {
+                  "name": "Accounting",
+                  "value": "Accounting"
+                },
+                {
+                  "name": "Other",
+                  "value": "Other"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 5_Email",
+              "displayName": "Contact 5_Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Contact 5_Cellphone",
+              "displayName": "Contact 5_Cellphone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Credit Applicant Phone",
+              "displayName": "Credit Applicant Phone",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Link contact",
+              "displayName": "Link contact",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address Same as Billing Address",
+              "displayName": "Shipping Address Same as Billing Address",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Approved by AR",
+              "displayName": "Approved by AR",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Yes",
+                  "value": "Yes"
+                },
+                {
+                  "name": "No",
+                  "value": "No"
+                },
+                {
+                  "name": "Need More Information",
+                  "value": "Need More Information"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Account Executive Email",
+              "displayName": "Account Executive Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Approved by Customer",
+              "displayName": "Approved by Customer",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Yes",
+                  "value": "Yes"
+                },
+                {
+                  "name": "No",
+                  "value": "No"
+                },
+                {
+                  "name": "My colleagues will complete missing information",
+                  "value": "My colleagues will complete missing information"
+                },
+                {
+                  "name": "Same",
+                  "value": "Same"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner Info %",
+              "displayName": "Owner Info %",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Billing %",
+              "displayName": "Billing %",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Account Payable %",
+              "displayName": "Account Payable %",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "References %",
+              "displayName": "References %",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Logistic %",
+              "displayName": "Logistic %",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Purchasing %",
+              "displayName": "Purchasing %",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Credit Applicant %",
+              "displayName": "Credit Applicant %",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "TOTAL %",
+              "displayName": "TOTAL %",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Owner 1_Legal Name",
+              "displayName": "Owner 1_Legal Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Owner 2_Legal Name",
+              "displayName": "Owner 2_Legal Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "First Batch",
+              "displayName": "First Batch",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Activity",
+              "displayName": "Activity",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Digital Catalog Status",
+              "displayName": "Digital Catalog Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Needed",
+                  "value": "Needed"
+                },
+                {
+                  "name": "Contacted",
+                  "value": "Contacted"
+                },
+                {
+                  "name": "Pending Approval",
+                  "value": "Pending Approval"
+                },
+                {
+                  "name": "Set Up",
+                  "value": "Set Up"
+                },
+                {
+                  "name": "Not Needed",
+                  "value": "Not Needed"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Digital Catalog Last Update",
+              "displayName": "Digital Catalog Last Update",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Fillout_New Customer Pre-Approval",
+              "displayName": "Fillout_New Customer Pre-Approval",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "S.G. Review",
+              "displayName": "S.G. Review",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Albert",
+                  "value": "Albert"
+                },
+                {
+                  "name": "Alberto",
+                  "value": "Alberto"
+                },
+                {
+                  "name": "Charles",
+                  "value": "Charles"
+                },
+                {
+                  "name": "David",
+                  "value": "David"
+                },
+                {
+                  "name": "Fabien",
+                  "value": "Fabien"
+                },
+                {
+                  "name": "Hamidou",
+                  "value": "Hamidou"
+                },
+                {
+                  "name": "Lisette",
+                  "value": "Lisette"
+                },
+                {
+                  "name": "Sabrina",
+                  "value": "Sabrina"
+                },
+                {
+                  "name": "Tricia",
+                  "value": "Tricia"
+                },
+                {
+                  "name": "Victor",
+                  "value": "Victor"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Year Established",
+              "displayName": "Reference 1_Year Established",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Last Sale Date",
+              "displayName": "Reference 1_Last Sale Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Payment Term",
+              "displayName": "Reference 1_Payment Term",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "C.O.D.",
+                  "value": "C.O.D."
+                },
+                {
+                  "name": "Net 7 Days",
+                  "value": "Net 7 Days"
+                },
+                {
+                  "name": "Net 15 Days",
+                  "value": "Net 15 Days"
+                },
+                {
+                  "name": "Net 30 Days",
+                  "value": "Net 30 Days"
+                },
+                {
+                  "name": "Prepaid",
+                  "value": "Prepaid"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Credit Line",
+              "displayName": "Reference 1_Credit Line",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Past Due Amount",
+              "displayName": "Reference 1_Past Due Amount",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Current Amount",
+              "displayName": "Reference 1_Current Amount",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_NSF History",
+              "displayName": "Reference 1_NSF History",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Payment Trend",
+              "displayName": "Reference 1_Payment Trend",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Any Unauthorized Deductions",
+              "displayName": "Reference 1_Any Unauthorized Deductions",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Overall Rating",
+              "displayName": "Reference 1_Overall Rating",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Comments",
+              "displayName": "Reference 1_Comments",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Fillout",
+              "displayName": "Reference 1_Fillout",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Reference Check Status",
+              "displayName": "Reference Check Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Required",
+                  "value": "Required"
+                },
+                {
+                  "name": "Approved",
+                  "value": "Approved"
+                },
+                {
+                  "name": "Pending",
+                  "value": "Pending"
+                },
+                {
+                  "name": "Not Needed",
+                  "value": "Not Needed"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference Check Comments",
+              "displayName": "Reference Check Comments",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Fillout New Credit Application",
+              "displayName": "Fillout New Credit Application",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "General Info % Output",
+              "displayName": "General Info % Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Year Established",
+              "displayName": "Reference 2_Year Established",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Last Sale Date",
+              "displayName": "Reference 2_Last Sale Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Payment Term",
+              "displayName": "Reference 2_Payment Term",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "C.O.D.",
+                  "value": "C.O.D."
+                },
+                {
+                  "name": "Net 7 Days",
+                  "value": "Net 7 Days"
+                },
+                {
+                  "name": "Net 15 Days",
+                  "value": "Net 15 Days"
+                },
+                {
+                  "name": "Net 30 Days",
+                  "value": "Net 30 Days"
+                },
+                {
+                  "name": "Prepaid",
+                  "value": "Prepaid"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Credit Line",
+              "displayName": "Reference 2_Credit Line",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Past Due Amount",
+              "displayName": "Reference 2_Past Due Amount",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Current Amount",
+              "displayName": "Reference 2_Current Amount",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_NSF History",
+              "displayName": "Reference 2_NSF History",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Payment Trend",
+              "displayName": "Reference 2_Payment Trend",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Any Unauthorized Deductions",
+              "displayName": "Reference 2_Any Unauthorized Deductions",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Overall Rating",
+              "displayName": "Reference 2_Overall Rating",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Comments",
+              "displayName": "Reference 2_Comments",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Year Established",
+              "displayName": "Reference 3_Year Established",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Last Sale Date",
+              "displayName": "Reference 3_Last Sale Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Payment Term",
+              "displayName": "Reference 3_Payment Term",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "C.O.D.",
+                  "value": "C.O.D."
+                },
+                {
+                  "name": "Net 7 Days",
+                  "value": "Net 7 Days"
+                },
+                {
+                  "name": "Net 15 Days",
+                  "value": "Net 15 Days"
+                },
+                {
+                  "name": "Net 30 Days",
+                  "value": "Net 30 Days"
+                },
+                {
+                  "name": "Prepaid",
+                  "value": "Prepaid"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Credit Line",
+              "displayName": "Reference 3_Credit Line",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Past Due Amount",
+              "displayName": "Reference 3_Past Due Amount",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Current Amount",
+              "displayName": "Reference 3_Current Amount",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_NSF History",
+              "displayName": "Reference 3_NSF History",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Payment Trend",
+              "displayName": "Reference 3_Payment Trend",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Any Unauthorized Deductions",
+              "displayName": "Reference 3_Any Unauthorized Deductions",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Overall Rating",
+              "displayName": "Reference 3_Overall Rating",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Comments",
+              "displayName": "Reference 3_Comments",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference Check - Send Email",
+              "displayName": "Reference Check - Send Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Yes",
+                  "value": "Yes"
+                },
+                {
+                  "name": "No",
+                  "value": "No"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 1_Credit Check Date",
+              "displayName": "Reference 1_Credit Check Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Credit Check Date",
+              "displayName": "Reference 2_Credit Check Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Credit Check Date",
+              "displayName": "Reference 3_Credit Check Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Reference 2_Fillout",
+              "displayName": "Reference 2_Fillout",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Reference 3_Fillout",
+              "displayName": "Reference 3_Fillout",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "References Review_Fillout",
+              "displayName": "References Review_Fillout",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Reference Check Button",
+              "displayName": "Reference Check Button",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Last Reference Check Date",
+              "displayName": "Last Reference Check Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Pre-Approval",
+              "displayName": "Pre-Approval",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Average Days to Pay",
+              "displayName": "Average Days to Pay",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "TEST Orders",
+              "displayName": "TEST Orders",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Affiliate",
+              "displayName": "Affiliate",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Sales Rep Number",
+              "displayName": "Sales Rep Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Cust Group Code",
+              "displayName": "Cust Group Code",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Acct # - Prev System",
+              "displayName": "Acct # - Prev System",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Payment Terms Code",
+              "displayName": "Payment Terms Code",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Curr",
+              "displayName": "Curr",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Country",
+              "displayName": "Country",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Billing Cust. Number",
+              "displayName": "Billing Cust. Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Representative Cust.",
+              "displayName": "Representative Cust.",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Bank Code",
+              "displayName": "Bank Code",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Customer Contact",
+              "displayName": "Customer Contact",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Instagram Profile",
+              "displayName": "Instagram Profile",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Priority Cust. ID",
+              "displayName": "Priority Cust. ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Shipping Territory",
+              "displayName": "Shipping Territory",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Zone Code",
+              "displayName": "Zone Code",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Ship zone import",
+              "displayName": "Ship zone import",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "From field: Customers",
+              "displayName": "From field: Customers",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Zone edited (from Ship zone import)",
+              "displayName": "Zone edited (from Ship zone import)",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Geocode Cache",
+              "displayName": "Geocode Cache",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address Google Maps",
+              "displayName": "Shipping Address Google Maps",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Customer Contacts 2025",
+              "displayName": "Customer Contacts 2025",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Priority Cust. ID (from Representative Cust.)",
+              "displayName": "Priority Cust. ID (from Representative Cust.)",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Full State Name",
+              "displayName": "Full State Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Tax Code",
+              "displayName": "Tax Code",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Rekki Output (4)",
+              "displayName": "Rekki Output (4)",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Customer Contacts 2025 copy",
+              "displayName": "Customer Contacts 2025 copy",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Customer Contacts 2025 copy",
+              "displayName": "Customer Contacts 2025 copy",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Distribution Routes",
+              "displayName": "Distribution Routes",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "BeverlyHills",
+                  "value": "BeverlyHills"
+                },
+                {
+                  "name": "Disney",
+                  "value": "Disney"
+                },
+                {
+                  "name": "Hollywood",
+                  "value": "Hollywood"
+                },
+                {
+                  "name": "LA DTLA",
+                  "value": "LA DTLA"
+                },
+                {
+                  "name": "LA Pasadena",
+                  "value": "LA Pasadena"
+                },
+                {
+                  "name": "LA Silvrlake",
+                  "value": "LA Silvrlake"
+                },
+                {
+                  "name": "Los Angeles",
+                  "value": "Los Angeles"
+                },
+                {
+                  "name": "OC North",
+                  "value": "OC North"
+                },
+                {
+                  "name": "OC South",
+                  "value": "OC South"
+                },
+                {
+                  "name": "Palm Springs",
+                  "value": "Palm Springs"
+                },
+                {
+                  "name": "SantaBarbara",
+                  "value": "SantaBarbara"
+                },
+                {
+                  "name": "SD 1",
+                  "value": "SD 1"
+                },
+                {
+                  "name": "SD 2 East",
+                  "value": "SD 2 East"
+                },
+                {
+                  "name": "SD 2 West",
+                  "value": "SD 2 West"
+                },
+                {
+                  "name": "Southbay",
+                  "value": "Southbay"
+                },
+                {
+                  "name": "West Hollywd",
+                  "value": "West Hollywd"
+                },
+                {
+                  "name": "Westside",
+                  "value": "Westside"
+                },
+                {
+                  "name": "WS Malibu",
+                  "value": "WS Malibu"
+                },
+                {
+                  "name": "WS SM",
+                  "value": "WS SM"
+                },
+                {
+                  "name": "WS Venice",
+                  "value": "WS Venice"
+                },
+                {
+                  "name": "WS Culver",
+                  "value": "WS Culver"
+                },
+                {
+                  "name": "Freight",
+                  "value": "Freight"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Price List Code",
+              "displayName": "Price List Code",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Returns",
+              "displayName": "Returns",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Sales Orders",
+              "displayName": "Sales Orders",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Special Prices",
+              "displayName": "Special Prices",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Special Cust. Prices",
+              "displayName": "Special Cust. Prices",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "EDI_1",
+              "displayName": "EDI_1",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "EDI 2",
+              "displayName": "EDI 2",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Dist. Route Code",
+              "displayName": "Dist. Route Code",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "EDI_4",
+              "displayName": "EDI_4",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Cleaned Delivery Instructions",
+              "displayName": "Cleaned Delivery Instructions",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Business Name Output",
+              "displayName": "Business Name Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Website Output",
+              "displayName": "Website Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing Address_City Output",
+              "displayName": "Billing Address_City Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Customer Contacts 2025 copy",
+              "displayName": "Customer Contacts 2025 copy",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Company Phone Output",
+              "displayName": "Company Phone Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing Address_Attn Output",
+              "displayName": "Billing Address_Attn Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing Address Line 1 Output",
+              "displayName": "Billing Address Line 1 Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing Address_Line 2 Output",
+              "displayName": "Billing Address_Line 2 Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address_Attn Output",
+              "displayName": "Shipping Address_Attn Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address Line 1 Output",
+              "displayName": "Shipping Address Line 1 Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address Line 2 Output",
+              "displayName": "Shipping Address Line 2 Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Shipping Address_City Output",
+              "displayName": "Shipping Address_City Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing_Legal Name Output",
+              "displayName": "Billing_Legal Name Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing Address Output",
+              "displayName": "Billing Address Output",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Credit Balance",
+              "displayName": "Credit Balance",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "∞ Shopify Id (from Customer Contacts 2025 copy)",
+              "displayName": "∞ Shopify Id (from Customer Contacts 2025 copy)",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "EDI_7",
+              "displayName": "EDI_7",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Cust. Site Id",
+              "displayName": "Cust. Site Id",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "EDI_Y",
+              "displayName": "EDI_Y",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "EDI_USA",
+              "displayName": "EDI_USA",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Name (from Customer Contacts 2025 copy)",
+              "displayName": "Name (from Customer Contacts 2025 copy)",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Name (from Customer Contacts 2025 copy) copy",
+              "displayName": "Name (from Customer Contacts 2025 copy) copy",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "EDI_Carrier Code",
+              "displayName": "EDI_Carrier Code",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Sparklayer_Price_Lists",
+              "displayName": "Sparklayer_Price_Lists",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Sparklayer_Price_Lists 2",
+              "displayName": "Sparklayer_Price_Lists 2",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Billing Priority Cust. ID (from Billing Cust. Number)",
+              "displayName": "Billing Priority Cust. ID (from Billing Cust. Number)",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Priority Customer Status",
+              "displayName": "Priority Customer Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Potential",
+                  "value": "Potential"
+                },
+                {
+                  "name": "Active",
+                  "value": "Active"
+                },
+                {
+                  "name": "Credit Hold",
+                  "value": "Credit Hold"
+                },
+                {
+                  "name": "Forced Hold",
+                  "value": "Forced Hold"
+                },
+                {
+                  "name": "Inactive",
+                  "value": "Inactive"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Financial Parameters Assigned",
+              "displayName": "Financial Parameters Assigned",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Financial Account No",
+              "displayName": "Financial Account No",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Invoice Type",
+              "displayName": "Invoice Type",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Finance Charge Code",
+              "displayName": "Finance Charge Code",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Pay to Bank Account",
+              "displayName": "Pay to Bank Account",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Last Synced to Priority",
+              "displayName": "Last Synced to Priority",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1552,
+        48
+      ],
+      "id": "f05a7784-5182-4db6-beeb-f40103a29b92",
+      "name": "Update Last Synced",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "eiSQxyinjSGRrKCr",
+          "name": "Airtable account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "Fetch Airtable Record": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        []
+      ]
+    },
+    "Test Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get many bases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many bases": {
+      "main": [
+        [
+          {
+            "node": "Get base schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get base schema": {
+      "main": [
+        [
+          {
+            "node": "Fetch Test Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Test Record": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Check Priority Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Priority Customer": {
+      "main": [
+        [
+          {
+            "node": "Update Priority Customer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Priority Customer",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        []
+      ]
+    },
+    "Create Priority Customer": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Priority Customer": {
+      "main": [
+        [
+          {
+            "node": "Merge Branches",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Merge Branches": {
+      "main": [
+        [
+          {
+            "node": "Update Last Synced",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "America/Los_Angeles"
+  },
+  "versionId": "777014fa-fbfc-4c6e-89e1-3e8bda899fa8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5874c7b92c820ebbed0655fcdd06efb15d5270b6f01f27b46a49795309dfffd3"
+  },
+  "id": "n8uh4yxzmtshsD7E",
+  "tags": []
+}
