@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
 """
-Entry point for Airtable ↔ Priority ERP Product Sync.
+Entry point for Airtable ↔ Priority ERP Sync.
+
+Supports 9 workflows via --workflow flag:
+  products        (LOGPART)    — Parts All
+  fncpart         (FNCPART)    — Fin. Params Parts
+  prdpart         (PRDPART)    — MRP for Parts
+  vendors         (SUPPLIERS)  — Vendors All
+  fncsup          (FNCSUP)     — Fin. Params Vendors
+  vendor-prices   (PRICELIST)  — Vendor Price Lists
+  customers       (CUSTOMERS)  — Customers All
+  fnccust         (FNCCUST)    — Fin. Params Customers
+  customer-prices (PRICELIST)  — Customer Price Lists
 
 Usage:
-    python -m sync.run_sync                              # Full sync (all fields + sub-forms)
-    python -m sync.run_sync --mode status                # Status-only sync (3 fields, no sub-forms)
-    python -m sync.run_sync --dry-run                    # Preview without writing
-    python -m sync.run_sync --mode status --dry-run      # Preview status-only sync
-    python -m sync.run_sync --sku 14860                  # Sync single product
-    python -m sync.run_sync --mode status --sku 14860    # Status-only for single product
-    python -m sync.run_sync --server                     # Start webhook server
+    python -m sync.run_sync --workflow products                   # Full product sync
+    python -m sync.run_sync --workflow products --mode status     # Status-only product sync
+    python -m sync.run_sync --workflow vendors --dry-run          # Preview vendors sync
+    python -m sync.run_sync --workflow customers --sku C00001     # Single customer
+    python -m sync.run_sync --server                              # Start webhook server
 """
 
 from __future__ import annotations
@@ -17,14 +26,58 @@ from __future__ import annotations
 import argparse
 import sys
 
-from sync.logger_setup import print_detail, setup_logging
-from sync.models import SyncDirection, SyncMode
-from sync.sync_engine import ProductSyncEngine
+from sync.core.logger_setup import print_detail, setup_logging
+from sync.core.models import SyncDirection, SyncMode
+
+
+# ── Workflow engine factories ────────────────────────────────────────────────
+
+def _get_engine_class(workflow: str):
+    """Lazy-import the engine class for a workflow."""
+    if workflow == "products":
+        from sync.workflows.products.engine import ProductSyncEngine
+        return ProductSyncEngine
+    elif workflow == "fncpart":
+        from sync.workflows.fncpart.engine import FncpartSyncEngine
+        return FncpartSyncEngine
+    elif workflow == "prdpart":
+        from sync.workflows.prdpart.engine import PrdpartSyncEngine
+        return PrdpartSyncEngine
+    elif workflow == "vendors":
+        from sync.workflows.vendors.engine import VendorSyncEngine
+        return VendorSyncEngine
+    elif workflow == "fncsup":
+        from sync.workflows.fncsup.engine import FncsupSyncEngine
+        return FncsupSyncEngine
+    elif workflow == "vendor-prices":
+        from sync.workflows.vendor_prices.engine import VendorPriceSyncEngine
+        return VendorPriceSyncEngine
+    elif workflow == "customers":
+        from sync.workflows.customers.engine import CustomerSyncEngine
+        return CustomerSyncEngine
+    elif workflow == "fnccust":
+        from sync.workflows.fnccust.engine import FnccustSyncEngine
+        return FnccustSyncEngine
+    elif workflow == "customer-prices":
+        from sync.workflows.customer_prices.engine import CustomerPriceSyncEngine
+        return CustomerPriceSyncEngine
+    else:
+        raise ValueError(f"Unknown workflow: {workflow}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Sync product data between Airtable and Priority ERP.",
+        description="Sync data between Airtable and Priority ERP.",
+    )
+    parser.add_argument(
+        "--workflow",
+        choices=[
+            "products", "fncpart", "prdpart",
+            "vendors", "fncsup", "vendor-prices",
+            "customers", "fnccust", "customer-prices",
+        ],
+        default="products",
+        help="Sync workflow to run (default: products)",
     )
     parser.add_argument(
         "--direction",
@@ -36,7 +89,7 @@ def main() -> int:
         "--mode",
         choices=["full", "status"],
         default="full",
-        help="Sync mode: 'full' (all fields + sub-forms) or 'status' (3 status fields only, much faster).",
+        help="Sync mode: 'full' (all fields) or 'status' (status fields only). Not all workflows support status mode.",
     )
     parser.add_argument(
         "--dry-run",
@@ -47,7 +100,7 @@ def main() -> int:
         "--sku",
         type=str,
         default=None,
-        help="Sync a single product by SKU (for testing).",
+        help="Sync a single entity by key (e.g., SKU for products, PARTNAME for fncpart).",
     )
     parser.add_argument(
         "--server",
@@ -59,6 +112,11 @@ def main() -> int:
         type=int,
         default=8000,
         help="Port for the webhook server (default: 8000).",
+    )
+    parser.add_argument(
+        "--test-base",
+        action="store_true",
+        help="Use the test Airtable base (AIRTABLE_TEST_BASE_ID) instead of production.",
     )
 
     args = parser.parse_args()
@@ -81,13 +139,29 @@ def main() -> int:
     # ── CLI sync mode ─────────────────────────────────────────────────────
     log_file = setup_logging()
 
+    # Resolve test base override
+    base_id_override = None
+    token_override = None
+    if getattr(args, "test_base", False):
+        from sync.core.config import AIRTABLE_TEST_BASE_ID, AIRTABLE_TEST_TOKEN
+        if not AIRTABLE_TEST_BASE_ID:
+            print("\n  ERROR: --test-base requires AIRTABLE_TEST_BASE_ID env var to be set.")
+            return 2
+        base_id_override = AIRTABLE_TEST_BASE_ID
+        token_override = AIRTABLE_TEST_TOKEN  # Use test token if available
+        print(f"  Using TEST base: {AIRTABLE_TEST_BASE_ID}")
+
     try:
-        engine = ProductSyncEngine(
+        engine_class = _get_engine_class(args.workflow)
+        engine = engine_class(
             direction=SyncDirection(args.direction),
             dry_run=args.dry_run,
-            single_sku=args.sku,
+            single_key=args.sku,
             trigger="manual",
             mode=SyncMode(args.mode),
+            workflow_name=args.workflow,
+            base_id_override=base_id_override,
+            token_override=token_override,
         )
         stats = engine.run()
 

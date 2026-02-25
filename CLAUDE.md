@@ -302,6 +302,90 @@ Body: {
 
 ---
 
+## Airtable Field Types — CRITICAL for P→A Writes
+
+When writing to Airtable (P→A direction), field types matter. Sending the wrong type causes 422 errors.
+
+### Read-Only Fields (Formulas, Lookups, Rollups — CANNOT write)
+
+These Airtable fields are computed — they **cannot be set via the API**. Attempting to write returns 422.
+
+| Airtable Field | Type | Why Read-Only |
+|---|---|---|
+| `SKU Trim (EDI)` | formula | `TRIM({SKU})` — use writable `SKU` field instead |
+| `Base Price` | formula | References Price Import lookup |
+| `Base Price Currency` | formula | Computed |
+| `Standard Cost` | multipleLookupValues | Lookup from Price Import |
+| `Conversion Ratio` | formula | Hardcoded `1` |
+| `Availability Priority Output` | formula | Computed from availability dates |
+| `Allocate Inventory` | formula | Computed from Accounting Family |
+| `Vendor SKU Trim` | formula | Computed from Vendor SKU |
+| `Family (Number from Product Type)` | formula | Computed |
+
+**Rule:** Before adding a field to P→A mapping, verify its Airtable type via `GET /meta/bases/{baseId}/tables`. Only `singleLineText`, `number`, `singleSelect`, `multipleSelects`, `dateTime`, `checkbox` etc. are writable.
+
+### Number Fields (must send numeric values, not strings)
+
+| Airtable Field | Airtable Type | Priority Source | Transform |
+|---|---|---|---|
+| `Case Pack` | number (precision: 1) | SPEC1 (string) | `to_float` |
+| `Product Net Weight Input` | number (precision: 1) | SPEC2 (string) | `to_float` |
+
+Priority SPEC fields are always strings (even when they hold numbers like "100"). These must be converted to numeric values before sending to Airtable number fields.
+
+### SingleSelect Fields (needs `typecast: true`)
+
+Most mapped fields (Brand, Storage, Kelsey_Categories, etc.) are `singleSelect` in Airtable. If the Priority value doesn't match an existing option, Airtable returns 422 unless `typecast: true` is included in the API payload. With `typecast: true`, Airtable auto-creates new select options.
+
+**Rule:** Always include `"typecast": true` in batch create and batch update payloads for P→A sync.
+
+### SKU Fields — Read vs. Write
+
+| Purpose | Field | Type | Usage |
+|---|---|---|---|
+| **Reading/matching** SKUs | `SKU Trim (EDI)` | formula | Use for lookups and comparisons |
+| **Writing** SKUs (on create) | `SKU` | singleLineText | Use when creating new Airtable records |
+
+### Priority Y/N → Airtable Yes/No
+
+Priority stores boolean-like fields as `"Y"` / `"N"`. Airtable singleSelect fields use `"Yes"` / `"No"`. The `priority_yn()` transform handles this conversion. Apply it to: RESERVFLAG, and any SPEC field that stores Yes/No (Perishable, Retail, Staff Pick, Direct Import, etc.). Currently the Priority data for SPEC fields already contains "Yes"/"No" strings, so `clean()` works. If Priority changes to "Y"/"N" for SPEC fields, switch their transform to `priority_yn`.
+
+---
+
+## P→A Sync — Phase 4 Design
+
+### Two Modes (same as A→P)
+- **Full sync:** 17 writable fields + allergens sub-form
+- **Status-only:** 3 fields (Catalog Status, Inventory Status, Priority Status)
+
+### Change Detection
+- Uses `UDATE` field on LOGPART: `$filter=UDATE gt '{last_udate}'`
+- High-water mark stored in Sync Runs table ("Max UDATE" field)
+- First run (no stored UDATE) fetches ALL products
+
+### New Product Creation
+- Product in Priority but NOT in Airtable → CREATE new record
+- Includes `PARTDES` → `Product Title Priority Input` (**create_only** — skipped on updates)
+- Uses `SKU` (writable) field, not `SKU Trim (EDI)` (formula)
+
+### Loop Prevention (A→P ↔ P→A)
+1. P→A writes fields + sets `Last Synced from Priority` = now
+2. `Last Airtable Modified` changes → `Priority Sync Needed = "Yes"`
+3. A→P sync checks: if `Last Synced from Priority` > `Last Synced to Priority` → **SKIP** (no API call, just update timestamp)
+4. Loop broken.
+
+### Test Base
+- **Base:** Savory Gourmet (API Test) — `appqRALXnLSbi1hq3`
+- **CLI flag:** `--test-base` overrides base ID + token for safe testing
+- **Env vars:** `AIRTABLE_TEST_BASE_ID`, `AIRTABLE_TEST_TOKEN`
+- All P→A testing runs against the test base first, then production
+
+### Webhook Endpoints (Phase 4)
+- `GET /webhook/sync-from-priority?key=...` — Full P→A sync
+- `GET /webhook/sync-from-priority-status?key=...` — Status-only P→A sync
+
+---
+
 ## Claude Workflow Rules
 
 ### 1. Plan Mode (Non-Negotiable)
@@ -350,7 +434,7 @@ This project has parallel workstreams. Use subagents for:
 - **Phase 1:** ✅ DONE — Auth, connection, one-way sync (Airtable → Priority) for all LOGPART fields
 - **Phase 2:** ✅ DONE — Sub-forms (allergens, shelf lives, price lists, bins), webhook server, sync logging, GitHub
 - **Phase 3:** ✅ DONE — Railway deployment, clickable GET endpoint, Airtable button trigger via API Sync table
-- **Phase 4:** One-way sync: Priority → Airtable (reverse direction)
+- **Phase 4:** 🔄 IN PROGRESS — One-way sync: Priority → Airtable (reverse direction). Core code complete, testing on test base.
 - **Phase 5:** 2-way sync engine with conflict detection & resolution
 - **Phase 6:** Change detection (polling with timestamps + Airtable webhooks)
 
@@ -358,18 +442,18 @@ This project has parallel workstreams. Use subagents for:
 
 ```
 sync/
-├── config.py              # Env vars, constants, table IDs
+├── config.py              # Env vars, constants, table IDs, test base config
 ├── models.py              # Pydantic: SyncStats, SyncRecord, SubformResult, FieldMapping
-├── field_mapping.py       # 28 LOGPART field mappings + AIRTABLE_FIELDS_TO_FETCH list
-├── subform_mapping.py     # 4 sub-form mappings: allergens, shelf lives, price lists, bins
-├── airtable_client.py     # Read (fetch_changed_records, fetch_record_by_sku, fetch_shelf_lives) + write (batch_update_timestamps)
-├── priority_client.py     # LOGPART CRUD + sub-form ops (get/post/patch/deep_patch/sync_multi)
-├── sync_engine.py         # Orchestrator: run() → fetch → compare → sync main + sub-forms → log
-├── sync_log_client.py     # Writes run summaries to Airtable Sync Logs base
-├── server.py              # FastAPI: /health, GET+POST /webhook/sync (clickable URL), /webhook/status
-├── run_sync.py            # CLI: --dry-run, --sku, --direction, --server, --port
+├── field_mapping.py       # A→P (28 fields) + P→A (17 fields) mappings, both directions
+├── subform_mapping.py     # 4 sub-form mappings + reverse allergen mapper (P→A)
+├── airtable_client.py     # Read + write for both directions (fetch, create, update, timestamps)
+├── priority_client.py     # LOGPART CRUD + sub-form ops + fetch_changed_products (P→A)
+├── sync_engine.py         # Orchestrator: A→P + P→A sync methods, loop prevention
+├── sync_log_client.py     # Writes run summaries to Airtable Sync Logs base + UDATE tracking
+├── server.py              # FastAPI: /health, A→P + P→A webhook endpoints (4 total)
+├── run_sync.py            # CLI: --dry-run, --sku, --direction, --mode, --server, --test-base
 ├── logger_setup.py        # Logging config + console formatting
-└── utils.py               # clean(), format_price(), to_int()
+└── utils.py               # clean(), format_price(), to_int(), to_float(), priority_yn()
 ```
 
 ---
