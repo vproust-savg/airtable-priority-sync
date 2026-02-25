@@ -56,11 +56,12 @@ class PrdpartSyncEngine(BaseSyncEngine):
             token_override=token_override,
         )
 
-    def _create_priority_client(self) -> PriorityClient:
+    def _create_priority_client(self, api_url_override: str | None = None) -> PriorityClient:
         return PriorityClient(
             entity=PRIORITY_ENTITY,
             key_field=PRIORITY_KEY_FIELD,
             use_filter_lookup=True,  # PRDPART uses integer keys, not string PARTNAME
+            api_url_override=api_url_override,
         )
 
     def _create_sync_log_client(self) -> SyncLogClient:

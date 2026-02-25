@@ -60,12 +60,15 @@ class PriorityClient:
         entity: str = "LOGPART",
         key_field: str = "PARTNAME",
         use_filter_lookup: bool = False,
+        api_url_override: str | None = None,
     ) -> None:
         self.entity = entity
         self.key_field = key_field
         # Some entities (FNCPART, FNCSUP) use an internal integer key in the URL,
         # not PARTNAME/SUPNAME. For those, use $filter for lookups instead.
         self.use_filter_lookup = use_filter_lookup
+        # Allow overriding API URL for environment switching (sandbox/uat/production)
+        self.api_url = api_url_override or PRIORITY_API_URL
         self.session = requests.Session()
         self.session.auth = (PRIORITY_USER, PRIORITY_PASS)
         self.session.headers.update({
@@ -208,7 +211,7 @@ class PriorityClient:
 
         while True:
             url = (
-                f"{PRIORITY_API_URL}{self.entity}"
+                f"{self.api_url}{self.entity}"
                 f"?$select={self.key_field}"
                 f"&$top={PRIORITY_PAGE_SIZE}"
                 f"&$skip={skip}"
@@ -289,7 +292,7 @@ class PriorityClient:
             if filter_clause:
                 params.append(filter_clause)
 
-            url = f"{PRIORITY_API_URL}{self.entity}?{'&'.join(params)}"
+            url = f"{self.api_url}{self.entity}?{'&'.join(params)}"
 
             logger.debug(
                 "Fetching %s records (skip=%d, filter=%s)",
@@ -341,7 +344,7 @@ class PriorityClient:
         """
         if self.use_filter_lookup:
             url = (
-                f"{PRIORITY_API_URL}{self.entity}"
+                f"{self.api_url}{self.entity}"
                 f"?$filter={self.key_field} eq '{key_value}'"
             )
             response = self._request("GET", url)
@@ -351,7 +354,7 @@ class PriorityClient:
             records = data.get("value", [])
             return records[0] if records else None
 
-        url = f"{PRIORITY_API_URL}{self.entity}('{key_value}')"
+        url = f"{self.api_url}{self.entity}('{key_value}')"
         response = self._request("GET", url, allow_404=True)
 
         if response is None:
@@ -374,7 +377,7 @@ class PriorityClient:
         Raises:
             requests.HTTPError on failure.
         """
-        url = f"{PRIORITY_API_URL}{self.entity}"
+        url = f"{self.api_url}{self.entity}"
         logger.debug(
             "Creating %s %s with %d fields",
             self.entity,
@@ -421,9 +424,9 @@ class PriorityClient:
                 raise requests.HTTPError(
                     f"Could not determine internal key for {self.entity}('{key_value}')"
                 )
-            url = f"{PRIORITY_API_URL}{self.entity}({internal_key})"
+            url = f"{self.api_url}{self.entity}({internal_key})"
         else:
-            url = f"{PRIORITY_API_URL}{self.entity}('{key_value}')"
+            url = f"{self.api_url}{self.entity}('{key_value}')"
 
         logger.debug(
             "Updating %s %s: %d fields (%s)",
@@ -459,7 +462,7 @@ class PriorityClient:
         Returns:
             List of sub-form record dicts.
         """
-        url = f"{PRIORITY_API_URL}{self.entity}('{key_value}')/{subform_name}"
+        url = f"{self.api_url}{self.entity}('{key_value}')/{subform_name}"
         response = self._request("GET", url, allow_404=True)
 
         if response is None:
@@ -496,7 +499,7 @@ class PriorityClient:
         Returns:
             The created sub-form record from Priority.
         """
-        url = f"{PRIORITY_API_URL}{self.entity}('{key_value}')/{subform_name}"
+        url = f"{self.api_url}{self.entity}('{key_value}')/{subform_name}"
         logger.debug(
             "POST sub-form %s for %s: %s",
             subform_name, key_value, list(payload.keys()),
@@ -532,7 +535,7 @@ class PriorityClient:
             The updated sub-form record from Priority.
         """
         url = (
-            f"{PRIORITY_API_URL}{self.entity}('{key_value}')/"
+            f"{self.api_url}{self.entity}('{key_value}')/"
             f"{subform_name}('{sub_key_value}')"
         )
         logger.debug(
@@ -600,7 +603,7 @@ class PriorityClient:
         """
         Update a single-entity sub-form directly (Pattern A — no key in URL).
         """
-        url = f"{PRIORITY_API_URL}{self.entity}('{key_value}')/{subform_name}"
+        url = f"{self.api_url}{self.entity}('{key_value}')/{subform_name}"
         logger.debug(
             "PATCH sub-form %s for %s (single record): %s",
             subform_name, key_value, list(patch_body.keys()),
@@ -634,7 +637,7 @@ class PriorityClient:
         Returns:
             The parent entity response from Priority.
         """
-        url = f"{PRIORITY_API_URL}{self.entity}('{key_value}')"
+        url = f"{self.api_url}{self.entity}('{key_value}')"
         payload = {subform_name: records}
 
         logger.debug(
@@ -731,13 +734,13 @@ class PriorityClient:
                             continue
                         # Use numeric key (no quotes in URL)
                         url = (
-                            f"{PRIORITY_API_URL}{self.entity}('{key_value}')/"
+                            f"{self.api_url}{self.entity}('{key_value}')/"
                             f"{subform_name}({url_key})"
                         )
                     else:
                         # Use string key (with quotes in URL)
                         url = (
-                            f"{PRIORITY_API_URL}{self.entity}('{key_value}')/"
+                            f"{self.api_url}{self.entity}('{key_value}')/"
                             f"{subform_name}('{match_value}')"
                         )
 

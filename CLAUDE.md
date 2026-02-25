@@ -1,20 +1,46 @@
-# Airtable ↔ Priority ERP — Product 2-Way Sync
+# Airtable ↔ Priority ERP — Multi-Workflow 2-Way Sync
 
 ## Project Overview
 
-**What we're building:** A true 2-way sync for **product data only** between Airtable and Priority ERP.
-**What we're NOT building (yet):** No inventory, orders, invoices, customers, or any other entity.
+**What we're building:** A bidirectional sync engine between Airtable and Priority ERP covering **9 workflows** across products, vendors, and customers.
 **Tech stack:** Pure Python (no n8n). Hosted on Railway.
 **User context:** The project owner is not a developer. Keep explanations clear, ask before making assumptions, and never leave the project in a broken state.
 
 ---
 
-## Scope: Products Only
+## Commands
 
-Changes in either system should flow to the other:
-- Product created/updated in Airtable → pushed to Priority
-- Product created/updated in Priority → pushed to Airtable
-- Conflict resolution is needed when both sides change the same product
+| Command | Description |
+|---------|-------------|
+| `pip install -r requirements.txt` | Install dependencies |
+| `python3 -m sync.run_sync --workflow products --dry-run` | Preview product sync (no writes) |
+| `python3 -m sync.run_sync --workflow products` | Run product A→P sync |
+| `python3 -m sync.run_sync --workflow products --direction priority-to-airtable --test-base` | P→A sync to test base |
+| `python3 -m sync.run_sync --workflow vendors --priority-env uat` | Vendor sync against UAT |
+| `python3 -m sync.run_sync --workflow products --sku P00001` | Sync single product |
+| `python3 -m sync.run_sync --server` | Start webhook server (port 8000) |
+
+**Key flags:** `--workflow` (9 options), `--direction` (airtable-to-priority / priority-to-airtable / both), `--mode` (full / status), `--dry-run`, `--sku`, `--test-base`, `--priority-env` (sandbox / uat / production)
+
+**Requires:** Python 3.11+ (`pyproject` uses `.python-version`)
+
+---
+
+## Scope: 9 Sync Workflows
+
+| # | Workflow | Priority Entity | CLI Name | Airtable Table |
+|---|---------|----------------|----------|----------------|
+| 1 | Parts All | LOGPART | `products` | Products |
+| 2 | Fin. Params Parts | FNCPART | `fncpart` | Products |
+| 3 | MRP for Parts | PRDPART | `prdpart` | Products |
+| 4 | Vendors All | SUPPLIERS | `vendors` | Vendors All |
+| 5 | Fin. Params Vendors | FNCSUP | `fncsup` | Vendors All |
+| 6 | Vendor Price Lists | PRICELIST | `vendor-prices` | Vendor Price List |
+| 7 | Customers All | CUSTOMERS | `customers` | Customers All |
+| 8 | Fin. Params Customers | FNCCUST | `fnccust` | Customers All |
+| 9 | Customer Price Lists | PRICELIST | `customer-prices` | Customer Price List |
+
+Each workflow supports bidirectional sync (A→P and P→A) via both CLI and webhook endpoints.
 
 ---
 
@@ -41,11 +67,21 @@ All credentials are in `.env`. Never hardcode them in source files.
 
 ### Railway (Hosting)
 - **URL:** `https://airtable-priority-sync-production.up.railway.app`
-- **Webhook trigger:** `GET /webhook/sync?key={WEBHOOK_API_KEY}` (clickable URL, no headers needed)
 - **Health check:** `GET /health`
 - **Status check:** `GET /webhook/status` (requires Bearer header)
 - **Auto-deploys:** Pushes to `main` on GitHub trigger automatic redeploy
 - **Env vars:** All credentials set in Railway Variables tab (never in code)
+
+**Webhook endpoint pattern** (20 workflow-specific endpoints + 5 legacy):
+```
+GET /webhook/{workflow}/sync?key={KEY}                    # A→P full sync
+GET /webhook/{workflow}/sync-from-priority?key={KEY}      # P→A full sync
+GET /webhook/{workflow}/sync-status?key={KEY}             # A→P status-only (products only)
+GET /webhook/{workflow}/sync-from-priority-status?key={KEY} # P→A status-only (products only)
+```
+Where `{workflow}` = `products`, `fncpart`, `prdpart`, `vendors`, `fncsup`, `vendor-prices`, `customers`, `fnccust`, `customer-prices`.
+
+Add `&env=uat` or `&env=sandbox` for environment switching. Production blocked from webhooks.
 
 ### Airtable API Sync Table
 - **Table:** `API Sync` (`tblpwvHgbDzYx5Edm`) in the Savory Gourmet base
@@ -55,114 +91,71 @@ All credentials are in `.env`. Never hardcode them in source files.
 
 ---
 
-## Priority Interface: SGI_PART_ALL
+## Environments
 
-The file `tools/3. SG Part All Priority Interface.txt` defines the exact Priority entities and fields used. This is the source of truth for what fields exist in Priority.
+### Priority Environments (3 environments — same host, same credentials, different company codes)
 
-### Priority Entities & Fields
+| Environment | Company Code | URL | CLI Flag | Webhook Param |
+|---|---|---|---|---|
+| **Sandbox** | `a071024` | `.../tabc8cae.ini/a071024/` | `--priority-env sandbox` | `&env=sandbox` |
+| **UAT** | `a012226` | `.../tabc8cae.ini/a012226/` | `--priority-env uat` | `&env=uat` |
+| **Production** | TBD | `.../tabc8cae.ini/{TBD}/` | `--priority-env production` | **BLOCKED from webhooks** |
 
-**LOGPART** (main product form):
-| Field | Description |
-|-------|-------------|
-| `PARTNAME` | Part number / SKU (**primary key**) |
-| `PARTDES` | Full product description |
-| `SPEC1` | Case Pack |
-| `SPEC2` | Product Net Weight Input |
-| `SPEC3` | Product Net Weight Unit Input |
-| `SPEC4` | Brand |
-| `SPEC5` | Kelsey Categories |
-| `SPEC6` | Kelsey Subcategories |
-| `SPEC7` | Catalog Status |
-| `SPEC8` | Inventory Status |
-| `SPEC9` | Perishable |
-| `SPEC10` | Retail |
-| `SPEC11` | Feature Individual Portions |
-| `SPEC12` | Staff Pick |
-| `SPEC13` | Storage |
-| `SPEC14` | Availability Priority Output |
-| `SPEC15` | Direct Import |
-| `SPEC16` | Vendor SKU Trim |
-| `PUNITNAME` | Buy/Sell Unit |
-| `BASEPLPRICE` | Base Price |
-| `BASEPLCODE` | Base Price Currency |
-| `STATDES` | Priority Status |
-| `SUPNAME` | Vendor ID (Preferred Vendor) |
-| `PRICE` | Standard Cost |
-| `WSPLPRICE` | Wholesale Price List Price |
-| `CONV` | Conversion Ratio |
-| `FAMILYNAME` | Family (Number from Product Type) |
-| `TYPE` | Part Type (P/R/O) |
-| `RESERVFLAG` | Allocate Inventory |
+- All environments share the same host (`us.priority-connect.online`) and credentials (`SGAPI`)
+- The only difference is the company code in the URL path
+- **Default (no flag):** Uses `PRIORITY_API_URL` from `.env` (currently sandbox)
+- **Production is blocked from webhook endpoints** for safety — use CLI with `--priority-env production` only
+- Env vars: `PRIORITY_SANDBOX_COMPANY`, `PRIORITY_UAT_COMPANY`, `PRIORITY_PROD_COMPANY`
 
-**SAVR_PARTSHELF** (shelf life sub-form):
-| Field | Description |
-|-------|-------------|
-| `TYPE` | Shelf life type label |
-| `NUMBER` | Shelf life duration |
-| `TIMEUNIT` | Shelf life time unit |
+### Airtable Bases (2 bases)
 
-**SAVR_ALLERGENS** (allergens & features sub-form):
-| Field | Description |
-|-------|-------------|
-| `HASALLERGEN` | Allergen present flag |
-| `EGGS` | Eggs allergen |
-| `DAIRY` | Dairy allergen |
-| `FISH` | Fish allergen |
-| `PEANUT` | Peanut allergen |
-| `SESAME` | Sesame allergen |
-| `SHELLFISH` | Shellfish allergen |
-| `SOYBEAN` | Soybean allergen |
-| `NUTS` | Tree Nuts allergen |
-| `WHEAT` | Wheat allergen |
-| `HASFEATURE` | Feature present flag |
-| `GLUTENFREE` | Gluten Free |
-| `ORGANIC` | Organic |
-| `KOSHER` | Kosher |
-| `VEGAN` | Vegan |
-| `HALAL` | Halal |
-| `NONGMO` | Non GMO |
-| `IDPROTECT` | Identity Protected |
-| `GFSI` | GFSI Certified |
-| `PACKAGING` | Glass Packaging |
-| `PROP65` | Prop. 65 Warning |
-| `CABILL418` | California Assembly Bill 418 |
-| `TRACEABILITY` | Traceability Type |
+| Base | ID | Purpose | CLI Flag |
+|---|---|---|---|
+| **Production** | `appjwOgR4HsXeGIda` | Main data — DO NOT overwrite via P→A testing | (default) |
+| **Test** | `appqRALXnLSbi1hq3` | Duplicated base for safe P→A testing | `--test-base` |
 
-**PARTINCUSTPLISTS** (price lists sub-form):
-| Field | Description |
-|-------|-------------|
-| `PLNAME` | Price list name/code |
-| `PRICE` | Price in that list |
-| `CODE` | Price list code |
-| `QUANT` | Price quantity |
-| `UNITNAME` | Unit name |
+- **A→P testing:** Reads from production Airtable (safe — only reads), writes to Priority sandbox/UAT
+- **P→A testing:** Reads from Priority sandbox/UAT, writes to TEST Airtable base (safe — not production)
+- Env vars: `AIRTABLE_TEST_BASE_ID`, `AIRTABLE_TEST_TOKEN`
 
-**PARTLOCATIONS** (bin locations sub-form):
-| Field | Description |
-|-------|-------------|
-| `WARHSNAME` | Warehouse name |
-| `LOCNAME` | Bin location name |
+### Testing Matrix
+
+| Test Scenario | Airtable Base | Priority Target | CLI Flags |
+|---|---|---|---|
+| **A→P sandbox** | Production (reads) | Sandbox | `--priority-env sandbox` |
+| **A→P UAT** | Production (reads) | UAT | `--priority-env uat` |
+| **P→A sandbox** | Test (writes) | Sandbox | `--test-base --priority-env sandbox` |
+| **P→A UAT** | Test (writes) | UAT | `--test-base --priority-env uat` |
+| **A→P production** | Production | Production | `--priority-env production` (CLI only) |
+| **P→A production** | Production | Production | `--priority-env production` (no --test-base) |
+
+### Webhook Environment Switching
+
+Add `&env=sandbox` or `&env=uat` to any webhook URL:
+```
+GET /webhook/products/sync?key={KEY}&env=uat
+```
+Default (no `env` param): uses `PRIORITY_API_URL` from `.env` (sandbox).
 
 ---
 
-## Airtable Product Fields
+## Field Mappings & Priority Interfaces
 
-The existing script (`tools/10. Script for Product All v8.py`) defines the Airtable field structure. Key Airtable views and their fields:
+Field-level details live in the code and reference files — not here. Consult these sources:
 
-**EDI Parts 1 — Part Catalogue** (Products table):
-`SKU Trim (EDI)`, `Brand`, `Brand + Product Title + Net Weight + Case Pack`, `Product Net Weight Input`, `Product Net Weight Unit Input`, `Case Pack`, `Buy_Sell Unit (Priority)`, `Base Price`, `Base Price Currency`, `Priority Status`, `Inventory Status`, `Catalog Status`, `V-Vendor ID (from Preferred Vendor)`, `Standard Cost`, `Kelsey_Categories`, `Kelsey_Subcategories`, `Perishable`, `Retail`, `Feature_Individual Portions`, `Staff Pick`, `Storage`, `Availability Priority Output`, `Direct Import`, `LVL 2 SALE PRICE (from Price Import)`, `Conversion Ratio`, `Family (Number from Product Type)`, `Type (P/R/O)`, `Vendor SKU Trim`, `Allocate Inventory`
+| Workflow | Priority Interface File | Code Mapping |
+|----------|----------------------|--------------|
+| Products (LOGPART) | `tools/products-interface.txt` | `sync/workflows/products/field_mapping.py` |
+| Fin. Params Parts (FNCPART) | `tools/fncpart-interface.txt` | `sync/workflows/fncpart/field_mapping.py` |
+| MRP Parts (PRDPART) | `tools/prdpart-interface.txt` | `sync/workflows/prdpart/field_mapping.py` |
+| Vendors (SUPPLIERS) | `tools/vendors-interface.txt` | `sync/workflows/vendors/field_mapping.py` |
+| Fin. Params Vendors (FNCSUP) | `tools/fncsup-interface.txt` | `sync/workflows/fncsup/field_mapping.py` |
+| Vendor Prices (PRICELIST) | — | `sync/workflows/vendor_prices/field_mapping.py` |
+| Customers (CUSTOMERS) | `tools/customers-interface.txt` | `sync/workflows/customers/field_mapping.py` |
+| Fin. Params Customers (FNCCUST) | `tools/fnccust-interface.txt` | `sync/workflows/fnccust/field_mapping.py` |
+| Customer Prices (PRICELIST) | — | `sync/workflows/customer_prices/field_mapping.py` |
 
-**EDI Parts 2 — Shelf Lives** (Shelf Lives table):
-`SKU Trim (EDI) (from Products)`, `Type Label (Custom)`, `Shelf Life Input`, `Shelf Life Unit Input`
-
-**EDI Parts 3 — Allergens & Features** (Products table):
-`Allergen_Allergen Present`, `Allergen_Eggs`, `Allergen_Dairy`, `Allergen_Fish`, `Allergen_Peanut`, `Allergen_Sesame`, `Allergen_Shellfish`, `Allergen_Soybean`, `Allergen_Tree Nuts`, `Allergen_Wheat`, `Feature_Feature Present`, `Feature_Gluten Free`, `Feature_Organic`, `Feature_Kosher`, `Feature_Vegan`, `Feature_Halal`, `Feature_Non GMO`, `Feature_Identity Protected`, `GFSI Certified`, `Glass Packaging`, `Prop. 65 Warning`, `Calif. Ass. Bill 418`, `Traceability Type Output`
-
-**EDI Parts 5.1/5.2/5.3 — Price Lists** (Products table):
-`Lvl 1/2/3 Price List Code`, `LVL 1/2/3 SALE PRICE (from Price Import)`, `EDI $`, `EDI Price Quantity`, `Buy_Sell Unit (Priority)`
-
-**EDI Parts 6 — Bins** (Products table):
-`EDI Main`, `Simplified Bin Location (from Bin # Priority)`
+**Airtable field names & views:** See `tools/*.py` scripts (one per workflow) — these are the original export scripts that define every Airtable field name and view used.
 
 ---
 
@@ -170,10 +163,10 @@ The existing script (`tools/10. Script for Product All v8.py`) defines the Airta
 
 | File | Purpose |
 |------|---------|
-| `tools/10. Script for Product All v8.py` | **Working** Python script that exports Airtable product data to EDI format. Use as reference for Airtable field names, views, and data transformations. |
-| `tools/3. SG Part All Priority Interface.txt` | Priority interface definition — lists every Priority field that must be populated. Source of truth for Priority field names. |
-| `tools/Airtable to Priority Customers - One Way v4 - Approved.json` | **Working** n8n workflow for customer sync. Reference for Priority API patterns: auth headers, upsert logic (GET then POST/PATCH), error handling, `IEEE754Compatible: true` header. |
-| `.env` | All API credentials. Never hardcode these elsewhere. |
+| `tools/*.txt` | Priority interface definitions — source of truth for Priority field names per entity |
+| `tools/*.py` | Airtable export scripts — source of truth for Airtable field names, views, and data transforms |
+| `tools/n8n-customer-sync-reference.json` | n8n workflow reference for Priority API patterns (auth, upsert logic, `IEEE754Compatible: true` header) |
+| `.env` / `.env.example` | API credentials. Never hardcode elsewhere. |
 
 ---
 
@@ -352,37 +345,11 @@ Priority stores boolean-like fields as `"Y"` / `"N"`. Airtable singleSelect fiel
 
 ---
 
-## P→A Sync — Phase 4 Design
+## P→A Sync — Key Patterns
 
-### Two Modes (same as A→P)
-- **Full sync:** 17 writable fields + allergens sub-form
-- **Status-only:** 3 fields (Catalog Status, Inventory Status, Priority Status)
-
-### Change Detection
-- Uses `UDATE` field on LOGPART: `$filter=UDATE gt '{last_udate}'`
-- High-water mark stored in Sync Runs table ("Max UDATE" field)
-- First run (no stored UDATE) fetches ALL products
-
-### New Product Creation
-- Product in Priority but NOT in Airtable → CREATE new record
-- Includes `PARTDES` → `Product Title Priority Input` (**create_only** — skipped on updates)
-- Uses `SKU` (writable) field, not `SKU Trim (EDI)` (formula)
-
-### Loop Prevention (A→P ↔ P→A)
-1. P→A writes fields + sets `Last Synced from Priority` = now
-2. `Last Airtable Modified` changes → `Priority Sync Needed = "Yes"`
-3. A→P sync checks: if `Last Synced from Priority` > `Last Synced to Priority` → **SKIP** (no API call, just update timestamp)
-4. Loop broken.
-
-### Test Base
-- **Base:** Savory Gourmet (API Test) — `appqRALXnLSbi1hq3`
-- **CLI flag:** `--test-base` overrides base ID + token for safe testing
-- **Env vars:** `AIRTABLE_TEST_BASE_ID`, `AIRTABLE_TEST_TOKEN`
-- All P→A testing runs against the test base first, then production
-
-### Webhook Endpoints (Phase 4)
-- `GET /webhook/sync-from-priority?key=...` — Full P→A sync
-- `GET /webhook/sync-from-priority-status?key=...` — Status-only P→A sync
+- **Change detection:** `UDATE` field on LOGPART with `$filter=UDATE gt '{last_udate}'`. High-water mark stored in Sync Runs table. First run (no stored UDATE) fetches ALL.
+- **New product creation:** Priority-only products → CREATE in Airtable. Uses writable `SKU` field (not formula `SKU Trim (EDI)`). `PARTDES` → `Product Title Priority Input` is **create_only** (skipped on updates).
+- **Loop prevention:** P→A sets `Last Synced from Priority` = now → A→P checks if `Last Synced from Priority` > `Last Synced to Priority` → SKIP if so (no API call, just updates timestamp).
 
 ---
 
@@ -391,7 +358,7 @@ Priority stores boolean-like fields as `"Y"` / `"N"`. Airtable singleSelect fiel
 ### 1. Plan Mode (Non-Negotiable)
 - Enter plan mode for **ANY** task that touches this sync
 - Start with: Data Flow → Field Mapping → Error Strategy → Conflict Rules
-- If anything behaves unexpectedly: **STOP**, re-plan, and update `tasks/todo.md`
+- If anything behaves unexpectedly: **STOP** and re-plan
 
 ### 2. Use Subagents Aggressively
 This project has parallel workstreams. Use subagents for:
@@ -421,11 +388,8 @@ This project has parallel workstreams. Use subagents for:
 - Zero data loss tolerance
 
 ### 6. Task Management
-1. Write/update `tasks/todo.md` with checkable items
-2. Get explicit approval before coding major parts
-3. Mark items complete as you go
-4. Update `tasks/lessons.md` after every correction
-5. Keep `docs/runbook.md` updated
+1. Get explicit approval before coding major parts
+2. Update `tasks/lessons.md` after every correction
 
 ---
 
@@ -434,26 +398,35 @@ This project has parallel workstreams. Use subagents for:
 - **Phase 1:** ✅ DONE — Auth, connection, one-way sync (Airtable → Priority) for all LOGPART fields
 - **Phase 2:** ✅ DONE — Sub-forms (allergens, shelf lives, price lists, bins), webhook server, sync logging, GitHub
 - **Phase 3:** ✅ DONE — Railway deployment, clickable GET endpoint, Airtable button trigger via API Sync table
-- **Phase 4:** 🔄 IN PROGRESS — One-way sync: Priority → Airtable (reverse direction). Core code complete, testing on test base.
-- **Phase 5:** 2-way sync engine with conflict detection & resolution
-- **Phase 6:** Change detection (polling with timestamps + Airtable webhooks)
+- **Phase 4:** ✅ DONE — P→A sync for products, both directions, test base support
+- **Phase 5:** ✅ DONE — All 9 workflows (products, fncpart, prdpart, vendors, fncsup, vendor-prices, customers, fnccust, customer-prices) with bidirectional sync + environment switching
+- **Phase 6:** 🔄 NEXT — Testing all 9 workflows, then 2-way conflict detection & resolution
 
 ## Current Architecture
 
 ```
 sync/
-├── config.py              # Env vars, constants, table IDs, test base config
-├── models.py              # Pydantic: SyncStats, SyncRecord, SubformResult, FieldMapping
-├── field_mapping.py       # A→P (28 fields) + P→A (17 fields) mappings, both directions
-├── subform_mapping.py     # 4 sub-form mappings + reverse allergen mapper (P→A)
-├── airtable_client.py     # Read + write for both directions (fetch, create, update, timestamps)
-├── priority_client.py     # LOGPART CRUD + sub-form ops + fetch_changed_products (P→A)
-├── sync_engine.py         # Orchestrator: A→P + P→A sync methods, loop prevention
-├── sync_log_client.py     # Writes run summaries to Airtable Sync Logs base + UDATE tracking
-├── server.py              # FastAPI: /health, A→P + P→A webhook endpoints (4 total)
-├── run_sync.py            # CLI: --dry-run, --sku, --direction, --mode, --server, --test-base
-├── logger_setup.py        # Logging config + console formatting
-└── utils.py               # clean(), format_price(), to_int(), to_float(), priority_yn()
+├── core/                  # Shared engine + clients (entity-agnostic)
+│   ├── config.py          # Env vars, Priority environments, test base config
+│   ├── models.py          # Pydantic: SyncStats, SyncRecord, SubformResult, FieldMapping
+│   ├── base_engine.py     # Abstract sync engine: A→P + P→A orchestration
+│   ├── airtable_client.py # Read + write for both directions
+│   ├── priority_client.py # Entity CRUD + sub-form ops (environment-aware)
+│   ├── sync_log_client.py # Writes run summaries to Airtable Sync Logs base
+│   ├── logger_setup.py    # Logging config + console formatting
+│   └── utils.py           # clean(), format_price(), to_int(), to_float(), priority_yn()
+├── workflows/             # Per-entity workflow configs
+│   ├── products/          # LOGPART — engine, config, field_mapping, subform_mapping
+│   ├── fncpart/           # FNCPART — engine, config, field_mapping
+│   ├── prdpart/           # PRDPART — engine, config, field_mapping
+│   ├── vendors/           # SUPPLIERS — engine, config, field_mapping, subform_mapping
+│   ├── fncsup/            # FNCSUP — engine, config, field_mapping
+│   ├── vendor_prices/     # PRICELIST (vendor) — engine, config, field_mapping
+│   ├── customers/         # CUSTOMERS — engine, config, field_mapping, subform_mapping
+│   ├── fnccust/           # FNCCUST — engine, config, field_mapping
+│   └── customer_prices/   # PRICELIST (customer) — engine, config, field_mapping
+├── server.py              # FastAPI: /health, 20 webhook endpoints, env switching
+└── run_sync.py            # CLI: --workflow, --direction, --priority-env, --test-base, --dry-run
 ```
 
 ---
@@ -468,10 +441,10 @@ sync/
 
 ## Core Principles
 
-- **Products only** — do not expand scope without explicit approval
+- **Defined scope** — 9 workflows (products, vendors, customers + their financial params + price lists). Do not expand without explicit approval
 - **Simplicity first** — but never at the expense of robustness
 - **Production grade** — this is not a prototype
 - **Idempotency & safety** — zero duplicates or data loss
 - **Observability** — excellent logging, clear error messages
 - **Minimal footprint** — change only what is necessary
-- **Future-proof** — easy to add new entities (customers, orders) later
+- **Consistent patterns** — all workflows follow the same base engine architecture

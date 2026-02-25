@@ -118,6 +118,12 @@ def main() -> int:
         action="store_true",
         help="Use the test Airtable base (AIRTABLE_TEST_BASE_ID) instead of production.",
     )
+    parser.add_argument(
+        "--priority-env",
+        choices=["sandbox", "uat", "production"],
+        default=None,
+        help="Priority environment to target (default: uses PRIORITY_API_URL from .env).",
+    )
 
     args = parser.parse_args()
 
@@ -149,7 +155,18 @@ def main() -> int:
             return 2
         base_id_override = AIRTABLE_TEST_BASE_ID
         token_override = AIRTABLE_TEST_TOKEN  # Use test token if available
-        print(f"  Using TEST base: {AIRTABLE_TEST_BASE_ID}")
+        print(f"  Using TEST Airtable base: {AIRTABLE_TEST_BASE_ID}")
+
+    # Resolve Priority environment override
+    priority_url_override = None
+    if getattr(args, "priority_env", None):
+        from sync.core.config import get_priority_url
+        try:
+            priority_url_override = get_priority_url(args.priority_env)
+            print(f"  Using Priority environment: {args.priority_env} → {priority_url_override}")
+        except RuntimeError as e:
+            print(f"\n  ERROR: {e}")
+            return 2
 
     try:
         engine_class = _get_engine_class(args.workflow)
@@ -162,6 +179,7 @@ def main() -> int:
             workflow_name=args.workflow,
             base_id_override=base_id_override,
             token_override=token_override,
+            priority_url_override=priority_url_override,
         )
         stats = engine.run()
 

@@ -309,6 +309,7 @@ class BaseSyncEngine(abc.ABC):
         workflow_name: str = "products",
         base_id_override: str | None = None,
         token_override: str | None = None,
+        priority_url_override: str | None = None,
     ) -> None:
         self.direction = direction
         self.dry_run = dry_run
@@ -316,13 +317,16 @@ class BaseSyncEngine(abc.ABC):
         self.trigger = trigger
         self.mode = mode
         self.workflow_name = workflow_name
+        self.priority_url_override = priority_url_override
 
         # Create clients via subclass hooks
         self.airtable: AirtableClient = self._create_airtable_client(
             base_id_override=base_id_override,
             token_override=token_override,
         )
-        self.priority: PriorityClient = self._create_priority_client()
+        self.priority: PriorityClient = self._create_priority_client(
+            api_url_override=priority_url_override,
+        )
         self.sync_log: SyncLogClient = self._create_sync_log_client()
         self.stats = SyncStats()
 
@@ -340,10 +344,17 @@ class BaseSyncEngine(abc.ABC):
         """
 
     @abc.abstractmethod
-    def _create_priority_client(self) -> PriorityClient:
+    def _create_priority_client(
+        self, api_url_override: str | None = None,
+    ) -> PriorityClient:
         """
         Create and return a PriorityClient configured for this workflow.
         Subclass must provide entity name, key_field, etc.
+
+        Args:
+            api_url_override: If set, use this Priority API URL instead of
+                the default from PRIORITY_API_URL env var. Used for
+                environment switching (sandbox/uat/production).
         """
 
     def _create_sync_log_client(self) -> SyncLogClient:

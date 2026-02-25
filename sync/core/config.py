@@ -47,6 +47,35 @@ PRIORITY_API_URL = _require_env("PRIORITY_API_URL")
 PRIORITY_USER = _require_env("PRIORITY_USER")
 PRIORITY_PASS = _require_env("PRIORITY_PASS")
 
+# Priority environment company codes (same host + credentials, different company)
+# URL pattern: https://us.priority-connect.online/odata/Priority/tabc8cae.ini/{company}/
+PRIORITY_SANDBOX_COMPANY = os.environ.get("PRIORITY_SANDBOX_COMPANY", "a071024").strip()
+PRIORITY_UAT_COMPANY = os.environ.get("PRIORITY_UAT_COMPANY", "a012226").strip()
+PRIORITY_PROD_COMPANY = os.environ.get("PRIORITY_PROD_COMPANY", "").strip() or None
+
+# Base URL without company code (derived from PRIORITY_API_URL)
+# e.g., "https://us.priority-connect.online/odata/Priority/tabc8cae.ini/"
+_url_parts = PRIORITY_API_URL.rstrip("/").rsplit("/", 1)
+PRIORITY_API_BASE = _url_parts[0] + "/" if len(_url_parts) == 2 else PRIORITY_API_URL
+
+PRIORITY_ENVS = {
+    "sandbox": PRIORITY_SANDBOX_COMPANY,
+    "uat": PRIORITY_UAT_COMPANY,
+    "production": PRIORITY_PROD_COMPANY,
+}
+
+
+def get_priority_url(env: str) -> str:
+    """Resolve the full Priority API URL for a given environment name."""
+    code = PRIORITY_ENVS.get(env)
+    if not code:
+        raise RuntimeError(
+            f"Priority company code not configured for environment '{env}'. "
+            f"Set PRIORITY_{env.upper()}_COMPANY in .env"
+        )
+    return f"{PRIORITY_API_BASE}{code}/"
+
+
 # Priority API limits
 PRIORITY_MAX_CALLS_PER_MINUTE = 100
 PRIORITY_PAGE_SIZE = 500  # Records per paginated GET
