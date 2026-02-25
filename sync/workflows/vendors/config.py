@@ -2,7 +2,7 @@
 
 # ── Main Airtable table ─────────────────────────────────────────────────────
 AIRTABLE_TABLE_NAME = "Vendors"
-AIRTABLE_SYNC_VIEW = "EDI Vendors 1 - Vendors"
+AIRTABLE_SYNC_VIEW = "Airtable > Priority API Sync"
 
 # Key fields
 AIRTABLE_KEY_FIELD = "Priority Vendor ID"  # Formula (read-only)
@@ -39,4 +39,5 @@ TIMESTAMP_FIELDS = {
     "last_synced_to": AIRTABLE_FIELD_LAST_SYNCED,
     "last_synced_from": AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY,
     "priority_udate": AIRTABLE_FIELD_PRIORITY_UDATE,
+    "sync_comments": "Sync Comments",
 }

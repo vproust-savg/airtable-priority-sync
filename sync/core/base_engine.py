@@ -592,12 +592,24 @@ class BaseSyncEngine(abc.ABC):
             sync_results.append(result)
 
             # Queue timestamp update for successful syncs and skips
+            now_utc = datetime.now(timezone.utc).isoformat()
+            now_short = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            comment = self._compose_sync_comment(result, "A→P", now_short)
+
             if result.action in (SyncAction.CREATE, SyncAction.UPDATE, SyncAction.SKIP):
-                now_utc = datetime.now(timezone.utc).isoformat()
                 timestamp_updates.append({
                     "record_id": result.airtable_record_id,
                     "synced_at": now_utc,
                     "priority_udate": result.priority_udate,
+                    "sync_comment": comment,
+                })
+            elif result.action == SyncAction.ERROR and result.airtable_record_id:
+                # Write error to Sync Comments but don't update the sync timestamp
+                timestamp_updates.append({
+                    "record_id": result.airtable_record_id,
+                    "synced_at": None,
+                    "priority_udate": None,
+                    "sync_comment": comment,
                 })
 
         # Step 4: Update Airtable timestamps
@@ -613,6 +625,31 @@ class BaseSyncEngine(abc.ABC):
 
         # Step 5: Print summary
         self._print_final_summary()
+
+    # ── Sync Comment Composer ───────────────────────────────────────────
+
+    @staticmethod
+    def _compose_sync_comment(
+        result: SyncRecord,
+        direction: str,
+        timestamp: str,
+    ) -> str:
+        """Compose a human-readable sync comment for the Airtable record."""
+        if result.action == SyncAction.CREATE:
+            return f"{direction}: Created in Priority ({timestamp})"
+        elif result.action == SyncAction.UPDATE:
+            changed = result.fields_changed
+            short = ", ".join(changed[:5])
+            suffix = f" +{len(changed) - 5} more" if len(changed) > 5 else ""
+            return f"{direction}: Updated {short}{suffix} ({timestamp})"
+        elif result.action == SyncAction.SKIP:
+            if result.error_message:
+                return f"{direction}: Skipped — {result.error_message} ({timestamp})"
+            return f"{direction}: No changes ({timestamp})"
+        elif result.action == SyncAction.ERROR:
+            msg = result.error_message[:80] if result.error_message else "unknown"
+            return f"{direction}: ERROR — {msg} ({timestamp})"
+        return f"{direction}: {result.action.value} ({timestamp})"
 
     # ── Single record processing (A->P) ──────────────────────────────────
 
@@ -1051,11 +1088,14 @@ class BaseSyncEngine(abc.ABC):
                     all_mapped, current_fields, field_map=field_map,
                 )
 
+                now_short = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+
                 if not patch:
                     self.stats.skipped += 1
                     print_record_line(
                         idx, len(priority_records), key, "SKIP", "no changes"
                     )
+                    comment = f"P→A: No changes ({now_short})"
                 else:
                     updates.append({"id": airtable_record_id, "fields": patch})
                     self.stats.updated += 1
@@ -1066,12 +1106,16 @@ class BaseSyncEngine(abc.ABC):
                         "UPDATE" if not self.dry_run else "UPDATE [DRY]",
                         f"{len(patch)} fields ({field_names})",
                     )
+                    short_fields = ", ".join(list(patch.keys())[:5])
+                    suffix = f" +{len(patch) - 5} more" if len(patch) > 5 else ""
+                    comment = f"P→A: Updated {short_fields}{suffix} ({now_short})"
 
                 # Queue timestamp for existing records (both updated and skipped)
                 timestamp_updates.append({
                     "record_id": airtable_record_id,
                     "synced_at": datetime.now(timezone.utc).isoformat(),
                     "priority_udate": record_udate,
+                    "sync_comment": comment,
                 })
 
         # Store max UDATE for sync log

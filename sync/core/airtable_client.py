@@ -300,13 +300,15 @@ class AirtableClient:
         updates: list[dict[str, Any]],
     ) -> int:
         """
-        Batch-update 'Last Synced to Priority' and 'Priority UDATE' timestamps.
+        Batch-update 'Last Synced to Priority', 'Priority UDATE', and
+        optionally 'Sync Comments' fields.
 
         Args:
             updates: list of dicts with keys:
                 - record_id: Airtable record ID
                 - synced_at: ISO 8601 UTC datetime string
                 - priority_udate: ISO 8601 UTC datetime string (or None)
+                - sync_comment: optional string for the Sync Comments field
 
         Returns:
             Number of successfully updated records.
@@ -318,11 +320,13 @@ class AirtableClient:
 
             records_payload = []
             for update in batch:
-                fields: dict[str, Any] = {
-                    self.ts["last_synced_to"]: update["synced_at"],
-                }
+                fields: dict[str, Any] = {}
+                if update.get("synced_at"):
+                    fields[self.ts["last_synced_to"]] = update["synced_at"]
                 if update.get("priority_udate"):
                     fields[self.ts["priority_udate"]] = update["priority_udate"]
+                if update.get("sync_comment") and self.ts.get("sync_comments"):
+                    fields[self.ts["sync_comments"]] = update["sync_comment"]
 
                 records_payload.append({
                     "id": update["record_id"],
@@ -643,7 +647,8 @@ class AirtableClient:
         updates: list[dict[str, Any]],
     ) -> int:
         """
-        Batch-update 'Last Synced from Priority' and 'Priority UDATE' timestamps.
+        Batch-update 'Last Synced from Priority', 'Priority UDATE', and
+        optionally 'Sync Comments' fields.
 
         Used after P→A sync to mark records as recently synced from Priority.
         This timestamp is critical for loop prevention.
@@ -653,6 +658,7 @@ class AirtableClient:
                 - record_id: Airtable record ID
                 - synced_at: ISO 8601 UTC datetime string
                 - priority_udate: ISO 8601 UTC datetime string (or None)
+                - sync_comment: optional string for the Sync Comments field
 
         Returns:
             Number of successfully updated records.
@@ -669,6 +675,8 @@ class AirtableClient:
                 }
                 if update.get("priority_udate"):
                     fields[self.ts["priority_udate"]] = update["priority_udate"]
+                if update.get("sync_comment") and self.ts.get("sync_comments"):
+                    fields[self.ts["sync_comments"]] = update["sync_comment"]
 
                 records_payload.append({
                     "id": update["record_id"],

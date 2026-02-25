@@ -11,7 +11,7 @@ via row explosion — one per price level.
 # ── Airtable ─────────────────────────────────────────────────────────────────
 AIRTABLE_TABLE_NAME = "Customer Price List v2"
 AIRTABLE_TABLE_ID = "tblSObjhLCOiaKTN6"
-AIRTABLE_SYNC_VIEW = "EDI Cust. Price List 1"
+AIRTABLE_SYNC_VIEW = "Airtable > Priority API Sync"
 
 AIRTABLE_KEY_FIELD = "Price List Code"
 AIRTABLE_KEY_FIELD_WRITABLE = "Price List Code"
@@ -50,4 +50,5 @@ TIMESTAMP_FIELDS = {
     "last_synced_to": AIRTABLE_FIELD_LAST_SYNCED,
     "last_synced_from": AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY,
     "priority_udate": AIRTABLE_FIELD_PRIORITY_UDATE,
+    "sync_comments": "Sync Comments",
 }

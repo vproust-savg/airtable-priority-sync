@@ -28,4 +28,5 @@ TIMESTAMP_FIELDS = {
     "last_synced_to": AIRTABLE_FIELD_LAST_SYNCED,
     "last_synced_from": AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY,
     "priority_udate": AIRTABLE_FIELD_PRIORITY_UDATE,
+    "sync_comments": "Sync Comments",
 }
