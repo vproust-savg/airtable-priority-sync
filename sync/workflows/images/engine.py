@@ -138,24 +138,30 @@ class ImageSyncEngine:
         if not records:
             print_detail("No records to sync.")
             print_summary(
-            created=self.stats.created,
-            updated=self.stats.updated,
-            skipped=self.stats.skipped,
-            errors=self.stats.errors,
-            duration=self.stats.duration_display,
-        )
+                created=self.stats.created,
+                updated=self.stats.updated,
+                skipped=self.stats.skipped,
+                errors=self.stats.errors,
+                duration=self.stats.duration_display,
+            )
             return
 
-        # Process each record
+        # Process each record, flushing timestamps every 50 records
         total = len(records)
-        results: list[SyncRecord] = []
+        batch: list[SyncRecord] = []
+        batch_size = 50
         for idx, record in enumerate(records, 1):
             result = self._process_record(record, idx, total)
-            results.append(result)
+            batch.append(result)
 
-        # Update Airtable timestamps
-        if not self.dry_run:
-            self._update_timestamps(results)
+            if len(batch) >= batch_size:
+                if not self.dry_run:
+                    self._update_timestamps(batch)
+                batch = []
+
+        # Flush remaining results
+        if batch and not self.dry_run:
+            self._update_timestamps(batch)
 
         print_summary(
             created=self.stats.created,
