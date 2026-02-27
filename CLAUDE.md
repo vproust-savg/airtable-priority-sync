@@ -26,21 +26,22 @@
 
 ---
 
-## Scope: 9 Sync Workflows
+## Scope: 10 Sync Workflows
 
-| # | Workflow | Priority Entity | CLI Name | Airtable Table |
-|---|---------|----------------|----------|----------------|
-| 1 | Parts All | LOGPART | `products` | Products |
-| 2 | Fin. Params Parts | FNCPART | `fncpart` | Products |
-| 3 | MRP for Parts | PRDPART | `prdpart` | Products |
-| 4 | Vendors All | SUPPLIERS | `vendors` | Vendors All |
-| 5 | Fin. Params Vendors | FNCSUP | `fncsup` | Vendors All |
-| 6 | Vendor Price Lists | PRICELIST | `vendor-prices` | Vendor Price List |
-| 7 | Customers All | CUSTOMERS | `customers` | Customers All |
-| 8 | Fin. Params Customers | FNCCUST | `fnccust` | Customers All |
-| 9 | Customer Price Lists | PRICELIST | `customer-prices` | Customer Price List |
+| # | Workflow | Priority Entity | CLI Name | Airtable Table | Direction |
+|---|---------|----------------|----------|----------------|-----------|
+| 1 | Parts All | LOGPART | `products` | Products | Bidirectional |
+| 2 | Fin. Params Parts | FNCPART | `fncpart` | Products | Bidirectional |
+| 3 | MRP for Parts | PRDPART | `prdpart` | Products | Bidirectional |
+| 4 | Vendors All | SUPPLIERS | `vendors` | Vendors All | Bidirectional |
+| 5 | Fin. Params Vendors | FNCSUP | `fncsup` | Vendors All | Bidirectional |
+| 6 | Vendor Price Lists | PRICELIST | `vendor-prices` | Vendor Price List | Bidirectional |
+| 7 | Customers All | CUSTOMERS | `customers` | Customers All | Bidirectional |
+| 8 | Fin. Params Customers | FNCCUST | `fnccust` | Customers All | Bidirectional |
+| 9 | Customer Price Lists | PRICELIST | `customer-prices` | Customer Price List | Bidirectional |
+| 10 | Product Images | LOGPART | `images` | Products | A→P only |
 
-Each workflow supports bidirectional sync (A→P and P→A) via both CLI and webhook endpoints.
+Workflows 1–9 support bidirectional sync (A→P and P→A). Workflow 10 (images) is A→P only — downloads images from Airtable, compresses with Pillow (<150KB JPG), and uploads to Priority's `EXTFILENAME` field.
 
 ---
 
@@ -72,14 +73,16 @@ All credentials are in `.env`. Never hardcode them in source files.
 - **Auto-deploys:** Pushes to `main` on GitHub trigger automatic redeploy
 - **Env vars:** All credentials set in Railway Variables tab (never in code)
 
-**Webhook endpoint pattern** (20 workflow-specific endpoints + 5 legacy):
+**Webhook endpoint pattern** (21 workflow-specific endpoints + 5 legacy):
 ```
 GET /webhook/{workflow}/sync?key={KEY}                    # A→P full sync
 GET /webhook/{workflow}/sync-from-priority?key={KEY}      # P→A full sync
 GET /webhook/{workflow}/sync-status?key={KEY}             # A→P status-only (products only)
 GET /webhook/{workflow}/sync-from-priority-status?key={KEY} # P→A status-only (products only)
 ```
-Where `{workflow}` = `products`, `fncpart`, `prdpart`, `vendors`, `fncsup`, `vendor-prices`, `customers`, `fnccust`, `customer-prices`.
+Where `{workflow}` = `products`, `fncpart`, `prdpart`, `vendors`, `fncsup`, `vendor-prices`, `customers`, `fnccust`, `customer-prices`, `images`.
+
+**Note:** `images` workflow only has the `/sync` endpoint (A→P only, no reverse direction or status mode).
 
 Add `&env=uat` or `&env=sandbox` for environment switching. Production blocked from webhooks.
 

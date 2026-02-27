@@ -75,6 +75,7 @@ def _lazy_register_workflows() -> None:
     from sync.workflows.customers.engine import CustomerSyncEngine
     from sync.workflows.fnccust.engine import FnccustSyncEngine
     from sync.workflows.customer_prices.engine import CustomerPriceSyncEngine
+    from sync.workflows.images.engine import ImageSyncEngine
 
     _register_workflow("products", ProductSyncEngine, has_status_mode=True)
     _register_workflow("fncpart", FncpartSyncEngine, has_status_mode=False)
@@ -85,6 +86,7 @@ def _lazy_register_workflows() -> None:
     _register_workflow("customers", CustomerSyncEngine, has_status_mode=False)
     _register_workflow("fnccust", FnccustSyncEngine, has_status_mode=False)
     _register_workflow("customer-prices", CustomerPriceSyncEngine, has_status_mode=False)
+    _register_workflow("images", ImageSyncEngine, has_status_mode=False)
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -457,6 +459,17 @@ def customer_prices_sync_from_priority(
     """P→A full sync for customer price lists."""
     _verify_query_key(key)
     return _start_workflow("customer-prices", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env))
+
+
+# ── Images ──────────────────────────────────────────────────────────────────
+
+@app.get("/webhook/images/sync", status_code=202)
+def images_sync(
+    background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+) -> dict[str, str]:
+    """A→P image sync (upload product images to Priority)."""
+    _verify_query_key(key)
+    return _start_workflow("images", background_tasks, priority_url_override=_resolve_priority_env(env))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
