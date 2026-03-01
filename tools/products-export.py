@@ -8,10 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 import sys
 from tqdm import tqdm
+from dotenv import load_dotenv
 
-# Airtable configuration - hardcoded values
-AIRTABLE_TOKEN = 'REDACTED_AIRTABLE_TOKEN'
-AIRTABLE_BASE_ID = 'appjwOgR4HsXeGIda'
+load_dotenv()
+
+# Airtable configuration - from environment
+AIRTABLE_TOKEN = os.environ["AIRTABLE_TOKEN"]
+AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID", "appjwOgR4HsXeGIda")
 OUTPUT_FILE_PATH = '/Users/victorproust/Documents/Work/Priority/EDI/10. EDI_Products_All.txt'
 
 # Configure logging

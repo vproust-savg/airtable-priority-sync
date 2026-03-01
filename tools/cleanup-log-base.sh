@@ -4,8 +4,13 @@
 #
 # Usage: bash tools/cleanup_log_base.sh
 
-TOKEN="REDACTED_AIRTABLE_TOKEN"
-BASE_ID="appr935iOTErWivM1"
+# Load credentials from .env
+set -a
+source "$(dirname "$0")/../.env"
+set +a
+
+TOKEN="${AIRTABLE_SYNC_LOG_TOKEN:?Missing AIRTABLE_SYNC_LOG_TOKEN in .env}"
+BASE_ID="${AIRTABLE_SYNC_LOG_BASE_ID:?Missing AIRTABLE_SYNC_LOG_BASE_ID in .env}"
 
 # Tables to DELETE (48 tables — everything except Sync Runs and Sync Errors)
 TABLES=(

@@ -1,11 +1,15 @@
 import urllib.request
 import json
+import os
 import re
 import pandas as pd
 from pathlib import Path
+from dotenv import load_dotenv
 
-PAT = 'REDACTED_AIRTABLE_TOKEN'
-BASE_ID = 'appjwOgR4HsXeGIda'
+load_dotenv()
+
+PAT = os.environ["AIRTABLE_TOKEN"]
+BASE_ID = os.environ.get("AIRTABLE_BASE_ID", "appjwOgR4HsXeGIda")
 
 def make_request(method, url, data=None, headers=None):
     if headers is None:
