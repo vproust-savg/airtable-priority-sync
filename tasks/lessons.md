@@ -75,3 +75,80 @@ rather than from the sync view. This allows re-testing a product even after it's
 
 ### python3, not python
 macOS does not have `python` in PATH by default. Always use `python3`.
+
+## Priority Linked Tables — P→A Reverse Lookups (2026-03-05)
+
+### Formula fields in Airtable CANNOT be written to
+"Accounting Family" is a SWITCH formula that converts text names to numeric codes.
+P→A sync tried to write to it → 422 error. Solution: identify the writable singleSelect
+source field ("Kelsey_Types/Accounting Family") and write there instead.
+
+### Priority lookup table entities need API access enabled
+`FAMILY_FNC` initially returned 400 "API cannot be run for this form". The user had to
+enable API access in Priority before we could query it. When encountering a new linked
+table field, **ask the user directly** to enable API access for the corresponding form.
+
+### Fetch lookup tables dynamically — never hardcode
+The mapping between codes and descriptions can change over time (new categories added).
+Always fetch the lookup table from Priority at sync time using `fetch_lookup_table()`.
+Use `LookupConfig` on the `FieldMapping` to configure which entity/fields to fetch.
+
+### Priority descriptions may differ from Airtable option names
+Priority has "Jam & Honey" (ampersand) while Airtable may have "Jam and Honey".
+With `typecast: true`, Airtable creates new options if names don't match exactly.
+User should align Airtable singleSelect options with Priority descriptions to avoid duplicates.
+
+## Linked Record Sync — P→A (2026-03-05)
+
+### AirtableClient uses `_base_id`, not `base_id`
+The Airtable client stores its base ID as `self._base_id` (underscore prefix). When adding
+new methods, always use `self._base_id`. Using `self.base_id` raises AttributeError.
+
+### Empty dict `{}` is falsy in Python — use `is not None`
+When checking if a lookup/map was loaded, use `linked_records is not None` instead of just
+`linked_records`. An empty dict `{}` is falsy, which causes the code to fall through to the
+default `TRANSFORMS` lookup and fail with a KeyError on unregistered transform names.
+
+### Linked record fields need array format
+Airtable linked record fields require values written as arrays of record IDs: `["recXXXX"]`.
+Plain text or single strings won't work. The `LinkedRecordConfig` pattern resolves
+Priority codes → Airtable record IDs by fetching the target table and building a mapping.
+
+### Two distinct P→A lookup patterns
+1. **LookupConfig** (priority_lookup): Priority code → text description via Priority API.
+   Used when Airtable field is singleSelect/text (e.g., Product Type, Accounting Family).
+2. **LinkedRecordConfig** (linked_record): Priority code → Airtable record ID via Airtable API.
+   Used when Airtable field is a linked record (e.g., Preferred Vendor → Vendors table).
+
+### Auto-creating missing linked records
+When a Priority code has no matching Airtable record, `LinkedRecordAutoCreate` config on
+`LinkedRecordConfig` tells the engine to create a stub record. Key considerations:
+- The **match field** (e.g., "Priority Vendor ID") may be a formula/read-only field.
+  Write to a different **writable** field (e.g., "Vendor_ID") specified by `writable_key_field_id`.
+- Extra data (e.g., Company Name from SUPDES) is fetched from a different Priority entity
+  (e.g., SUPPLIERS) via `fetch_lookup_table()` — the same method used for LookupConfig.
+- The `create_linked_records()` method returns `{code: record_id}` so the
+  linked_records map is updated immediately for use in the same sync run.
+- When creating in the Airtable target table, use field IDs (not names) since the
+  AirtableClient's `_fields_to_ids()` isn't available for arbitrary tables.
+- **Airtable create responses return field NAMES, not IDs.** Don't try to extract
+  match values from the response using field IDs — instead pass the known codes
+  directly and use 1:1 correspondence with the response records.
+
+## Test Base — Field ID Mismatch (2026-03-05)
+
+### Duplicated bases may have different field IDs for fields added after duplication
+When a base is duplicated, existing fields keep their IDs. But fields added AFTER
+duplication (e.g., "Sync Comments" with ID `fldi8arwqVkZmZzHs`) get new IDs in the
+duplicate. Using production field IDs on the test base causes 422 "Unknown field name".
+
+### Fix: skip timestamp field IDs for test base
+In each workflow engine's `_create_airtable_client()`, when `base_id_override` is set
+(test base), skip adding timestamp field IDs to the `extra` dict. The `_to_id()` method
+falls back to field names, which Airtable accepts universally.
+
+### Always add 422 error body logging
+Without response body logging, 422 errors only show the HTTP status — not the reason.
+Add 422 body extraction (same pattern as `batch_create_records()`) to any method that
+writes to Airtable. The error message (e.g., `Unknown field name: "fldXXX"`) is
+critical for debugging.

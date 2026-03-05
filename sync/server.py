@@ -43,8 +43,12 @@ from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 
-from sync.core.config import LA_TIMEZONE, WEBHOOK_API_KEY, get_priority_url
+from sync.core.config import LA_TIMEZONE, WEBHOOK_API_KEY, get_priority_url, init_sentry
 from sync.core.models import ConflictStrategy, SyncDirection, SyncMode
+
+# Sentry must be initialized before FastAPI app creation so integrations
+# can attach their middleware to the Starlette ASGI stack.
+init_sentry()
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +244,13 @@ def _run_sync_background(
         }
         logger.error("Webhook sync failed (%s): %s", workflow_name, e)
 
+        import sentry_sdk
+        with sentry_sdk.new_scope() as scope:
+            scope.set_tag("workflow", workflow_name)
+            scope.set_tag("direction", direction.value)
+            scope.set_tag("mode", mode.value)
+            sentry_sdk.capture_exception(e)
+
     finally:
         with workflow["lock"]:
             workflow["running"] = False
@@ -295,6 +306,12 @@ def _start_workflow(
 def health_check() -> dict[str, str]:
     """Health check for Railway."""
     return {"status": "ok"}
+
+
+@app.get("/sentry-debug")
+async def trigger_error():
+    """Temporary endpoint to verify Sentry is working. Remove after verification."""
+    division_by_zero = 1 / 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

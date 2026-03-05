@@ -90,6 +90,22 @@ SHELF_LIFE_FIELD_IDS: dict[str, str] = {
     "Shelf Life Unit Input": "fldJAMWuzPKE7rByk",
 }
 
+# P→A: fields to fetch from Airtable Shelf Lives table for comparison
+P2A_SHELF_LIFE_FIELDS: list[str] = [
+    "SKU Trim (EDI) (from Products)",
+    "Type",
+    "Shelf Life Input",
+    "Shelf Life Unit Input",
+]
+
+P2A_SHELF_LIFE_FIELD_IDS: dict[str, str] = {
+    "SKU Trim (EDI) (from Products)": "fldehuzyU16onAMpt",  # lookup (read-only)
+    "Type": "fldPayhs9G6nGH5Ox",                            # singleSelect (writable)
+    "Shelf Life Input": "fldCahhZnYomym7KM",                 # number (writable)
+    "Shelf Life Unit Input": "fldJAMWuzPKE7rByk",             # singleSelect (writable)
+    "Products": "fldXZibRqeRp3wCfk",                         # linked record (writable)
+}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. PRICE LISTS (PARTINCUSTPLISTS_SUBFORM)

@@ -70,6 +70,8 @@ from sync.workflows.products.subform_mapping import (
     ALLERGEN_SUBFORM_NAME,
     BIN_FIELD_MAP,
     BIN_SUBFORM_NAME,
+    P2A_SHELF_LIFE_FIELD_IDS,
+    P2A_SHELF_LIFE_FIELDS,
     PRICE_LIST_FIELD_IDS,
     PRICE_LIST_SHARED_FIELD_IDS,
     PRICE_LIST_SUBFORM_NAME,
@@ -121,6 +123,13 @@ class ProductSyncEngine(BaseSyncEngine):
         token_override: str | None,
     ) -> AirtableClient:
         """Create an AirtableClient configured for the Products table."""
+        # Skip timestamp field IDs for test base — production IDs may not
+        # exist in the duplicated base.  _to_id() falls back to field names.
+        ts_ids = (
+            {}
+            if base_id_override
+            else {v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()}
+        )
         field_id_map = build_field_id_map(
             PRODUCT_FIELD_MAP, STATUS_FIELD_MAP,
             P2A_FIELD_MAP, P2A_STATUS_FIELD_MAP,
@@ -130,7 +139,7 @@ class ProductSyncEngine(BaseSyncEngine):
             extra={
                 AIRTABLE_FIELD_SKU: AIRTABLE_FIELD_SKU_ID,
                 AIRTABLE_FIELD_SKU_WRITABLE: AIRTABLE_FIELD_SKU_WRITABLE_ID,
-                **{v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()},
+                **ts_ids,
                 **PRICE_LIST_FIELD_IDS,
                 **PRICE_LIST_SHARED_FIELD_IDS,
             },
@@ -378,6 +387,10 @@ class ProductSyncEngine(BaseSyncEngine):
                 timestamp=datetime.now(timezone.utc),
             ))
 
+    def _get_p2a_extra_field_map(self) -> list[FieldMapping]:
+        """Include FNCPART + PRDPART field maps for P→A comparison."""
+        return list(FNCPART_P2A_FIELD_MAP) + list(PRDPART_P2A_FIELD_MAP)
+
     def _get_p2a_extra_fields(
         self,
         key: str,
@@ -410,8 +423,14 @@ class ProductSyncEngine(BaseSyncEngine):
             fncpart_data = self.priority_fncpart.get_record(key)
             if fncpart_data:
                 from sync.core.base_engine import map_priority_to_airtable
+                # Fetch FNCPART lookups (cached on first call)
+                if not hasattr(self, "_fncpart_lookups"):
+                    self._fncpart_lookups = self._fetch_priority_lookups(
+                        FNCPART_P2A_FIELD_MAP,
+                    )
                 fncpart_mapped = map_priority_to_airtable(
                     fncpart_data, FNCPART_P2A_FIELD_MAP, is_create=False,
+                    lookups=self._fncpart_lookups,
                 )
                 extra.update(fncpart_mapped)
         except Exception as e:
@@ -750,3 +769,221 @@ class ProductSyncEngine(BaseSyncEngine):
                 message=f"bins: {e}",
                 timestamp=datetime.now(timezone.utc),
             ))
+
+    # ── P→A sub-form sync: shelf lives → Airtable Shelf Lives table ──────
+
+    def _post_p2a_sync(
+        self,
+        priority_records: list[dict[str, Any]],
+        airtable_by_key: dict[str, dict[str, Any]],
+    ) -> None:
+        """
+        After main P→A product sync, sync shelf life sub-form data from
+        Priority into the separate Airtable Shelf Lives table.
+
+        Only runs in FULL mode (not STATUS).
+        """
+        if self.mode == SyncMode.STATUS:
+            return
+
+        try:
+            self._sync_p2a_shelf_lives(priority_records, airtable_by_key)
+        except Exception as e:
+            logger.error("P→A shelf lives sync failed: %s", e)
+            print_detail(f"⚠ Shelf lives sync error: {e}")
+
+    def _sync_p2a_shelf_lives(
+        self,
+        priority_records: list[dict[str, Any]],
+        airtable_by_key: dict[str, dict[str, Any]],
+    ) -> None:
+        """
+        Sync shelf lives from Priority SAVR_PARTSHELF_SUBFORM into the
+        Airtable Shelf Lives table.
+
+        For each product in priority_records:
+        1. GET shelf life sub-form from Priority
+        2. Compare with existing Airtable shelf life records
+        3. CREATE new records / UPDATE changed records in Airtable
+
+        Match key: SKU + Type (e.g., "API Test" + "Frozen")
+        """
+        print_section("Syncing shelf lives (P→A)...")
+
+        # Step 1: Pre-fetch ALL existing Airtable shelf lives
+        airtable_shelf_lives = self._fetch_airtable_shelf_lives_for_p2a()
+        print_detail(
+            f"Existing Airtable shelf lives: {sum(len(v) for v in airtable_shelf_lives.values())} "
+            f"records across {len(airtable_shelf_lives)} SKUs"
+        )
+
+        # Step 2: Collect SKUs to process
+        priority_key = self._get_key_field_name()
+        skus_to_process = []
+        for rec in priority_records:
+            sku = str(rec.get(priority_key, "")).strip()
+            if sku:
+                skus_to_process.append(sku)
+
+        creates: list[dict[str, Any]] = []
+        updates: list[dict[str, Any]] = []
+        unchanged = 0
+
+        # Step 3: For each product, fetch Priority sub-form and compare
+        for sku in skus_to_process:
+            # Get the Products record ID (needed for linked record on CREATE)
+            products_record = airtable_by_key.get(sku)
+            if not products_record:
+                logger.debug("SKU %s not in Airtable — skipping shelf lives", sku)
+                continue
+            products_record_id = products_record["record_id"]
+
+            # Fetch shelf lives from Priority
+            try:
+                priority_shelf_lives = self.priority.get_subform(
+                    sku, SHELF_LIFE_SUBFORM_NAME,
+                )
+            except Exception as e:
+                logger.warning("Failed to fetch shelf lives from Priority for %s: %s", sku, e)
+                continue
+
+            if not priority_shelf_lives:
+                continue
+
+            # Get existing Airtable shelf lives for this SKU
+            existing_by_type = airtable_shelf_lives.get(sku, {})
+
+            for p_record in priority_shelf_lives:
+                p_type = str(p_record.get("TYPE", "")).strip()
+                p_number = p_record.get("NUMBER")
+                p_unit = str(p_record.get("TIMEUNIT", "")).strip()
+
+                if not p_type:
+                    continue
+
+                existing = existing_by_type.get(p_type)
+
+                if existing is None:
+                    # CREATE: new shelf life record in Airtable
+                    fields: dict[str, Any] = {
+                        "Type": p_type,
+                        "Products": [products_record_id],
+                    }
+                    if p_number is not None:
+                        fields["Shelf Life Input"] = p_number
+                    if p_unit:
+                        fields["Shelf Life Unit Input"] = p_unit
+
+                    creates.append({"fields": fields})
+                else:
+                    # Compare and UPDATE if changed
+                    existing_fields = existing["fields"]
+                    patch_fields: dict[str, Any] = {}
+
+                    # Compare Number
+                    existing_number = existing_fields.get("Shelf Life Input")
+                    if p_number is not None and existing_number != p_number:
+                        patch_fields["Shelf Life Input"] = p_number
+
+                    # Compare Unit
+                    existing_unit = str(existing_fields.get("Shelf Life Unit Input") or "").strip()
+                    if p_unit and existing_unit != p_unit:
+                        patch_fields["Shelf Life Unit Input"] = p_unit
+
+                    if patch_fields:
+                        updates.append({
+                            "id": existing["record_id"],
+                            "fields": patch_fields,
+                        })
+                    else:
+                        unchanged += 1
+
+        # Step 4: Batch write to Airtable Shelf Lives table
+        created_count = 0
+        updated_count = 0
+
+        if creates and not self.dry_run:
+            created_count = self.airtable.batch_create_to_table(
+                AIRTABLE_SHELF_LIVES_TABLE_ID, creates,
+            )
+
+        if updates and not self.dry_run:
+            updated_count = self.airtable.batch_update_to_table(
+                AIRTABLE_SHELF_LIVES_TABLE_ID, updates,
+            )
+
+        summary = (
+            f"Shelf lives P→A: "
+            f"{created_count or len(creates)} created, "
+            f"{updated_count or len(updates)} updated, "
+            f"{unchanged} unchanged"
+        )
+        print_detail(summary)
+        logger.info(summary)
+
+    def _fetch_airtable_shelf_lives_for_p2a(
+        self,
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        """
+        Fetch ALL existing shelf life records from the Airtable Shelf Lives table.
+
+        Returns:
+            Nested dict: ``{sku: {type: {"record_id": str, "fields": dict}}}``
+        """
+        shelf_lives_url = (
+            f"{AIRTABLE_API_BASE}/{self.airtable._base_id}/{AIRTABLE_SHELF_LIVES_TABLE_ID}"
+        )
+        field_params = [("fields[]", f) for f in P2A_SHELF_LIFE_FIELDS]
+        records: list[dict[str, Any]] = []
+        offset: str | None = None
+
+        while True:
+            # No view filter: fetch ALL shelf life records for comparison.
+            # (The A→P view may exclude records created by P→A sync.)
+            params = list(field_params)
+            if offset:
+                params.append(("offset", offset))
+
+            response = self.airtable.session.get(
+                shelf_lives_url,
+                params=params,
+                timeout=AIRTABLE_REQUEST_TIMEOUT,
+            )
+
+            if response.status_code == 429:
+                retry_after = int(response.headers.get("Retry-After", 30))
+                logger.warning("Rate limited fetching shelf lives. Waiting %ds...", retry_after)
+                time.sleep(retry_after)
+                continue
+
+            response.raise_for_status()
+            data = response.json()
+
+            records.extend(data.get("records", []))
+            offset = data.get("offset")
+            if not offset:
+                break
+            time.sleep(0.2)
+
+        # Group by SKU → Type
+        by_sku: dict[str, dict[str, dict[str, Any]]] = {}
+        for record in records:
+            fields = record.get("fields", {})
+            record_id = record.get("id", "")
+
+            # SKU comes from a lookup field — it's a list
+            sku_raw = fields.get("SKU Trim (EDI) (from Products)")
+            sku = clean(sku_raw)
+            if not sku:
+                continue
+
+            shelf_type = str(fields.get("Type") or "").strip()
+            if not shelf_type:
+                continue
+
+            by_sku.setdefault(sku, {})[shelf_type] = {
+                "record_id": record_id,
+                "fields": fields,
+            }
+
+        return by_sku

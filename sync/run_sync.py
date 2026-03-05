@@ -58,6 +58,9 @@ def _get_engine_class(workflow: str):
 
 
 def main() -> int:
+    from sync.core.config import init_sentry
+    init_sentry()
+
     parser = argparse.ArgumentParser(
         description="Sync data between Airtable and Priority ERP.",
     )
@@ -209,6 +212,14 @@ def main() -> int:
         print(f"\n  FATAL: {e}")
         import traceback
         traceback.print_exc()
+
+        import sentry_sdk
+        with sentry_sdk.new_scope() as scope:
+            scope.set_extra("workflow", args.workflow)
+            scope.set_extra("direction", args.direction)
+            scope.set_extra("dry_run", args.dry_run)
+            sentry_sdk.capture_exception(e)
+
         return 2
 
 

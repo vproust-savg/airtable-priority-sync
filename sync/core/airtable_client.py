@@ -503,6 +503,314 @@ class AirtableClient:
         logger.info("Fetched %d Airtable records (%d with key)", len(records), len(by_key))
         return by_key
 
+    # ── Linked Record Lookups ─────────────────────────────────────────────
+
+    def fetch_linked_record_map(
+        self,
+        table_id: str,
+        match_field_id: str,
+    ) -> dict[str, str]:
+        """
+        Fetch all records from a target Airtable table and build a map of
+        {match_field_value: record_id}.
+
+        Used for P→A linked record resolution: e.g., fetch the Vendors table
+        and build {"4157": "recXXXX", "10042": "recYYYY"} so we can convert
+        a Priority vendor code to an Airtable record ID.
+        """
+        url = f"{AIRTABLE_API_BASE}/{self._base_id}/{table_id}"
+        result: dict[str, str] = {}
+        offset: str | None = None
+
+        while True:
+            params: dict[str, str] = {
+                "fields[]": match_field_id,
+            }
+            if offset:
+                params["offset"] = offset
+
+            try:
+                response = self.session.get(
+                    url, params=params, timeout=AIRTABLE_REQUEST_TIMEOUT,
+                )
+                response.raise_for_status()
+            except requests.RequestException as exc:
+                logger.error("Failed to fetch linked record table %s: %s", table_id, exc)
+                return result
+
+            data = response.json()
+            for record in data.get("records", []):
+                rec_id = record["id"]
+                fields = record.get("fields", {})
+                # The API returns data keyed by field ID when we request by ID
+                # but may also return by name — handle both
+                match_val = None
+                for v in fields.values():
+                    match_val = v
+                    break
+                if match_val is not None:
+                    match_val_str = str(match_val).strip()
+                    if match_val_str:
+                        result[match_val_str] = rec_id
+
+            offset = data.get("offset")
+            if not offset:
+                break
+
+        logger.info(
+            "Loaded %d linked records from table %s", len(result), table_id,
+        )
+        return result
+
+    def create_linked_records(
+        self,
+        table_id: str,
+        records: list[dict[str, Any]],
+        codes: list[str],
+    ) -> dict[str, str]:
+        """
+        Create new records in a target Airtable table and return a map of
+        {code: record_id} for the created records.
+
+        Used to auto-create missing linked records (e.g., create a Vendor
+        record so a product's Preferred Vendor linked record can be populated).
+
+        Args:
+            table_id: Target Airtable table ID.
+            records: List of dicts, each with key "fields" containing
+                    {field_id: value} mappings.  Must be 1:1 with codes.
+            codes: List of source codes corresponding to each record.
+                  Used as keys in the returned map (avoids parsing Airtable
+                  response which returns field names, not IDs).
+
+        Returns:
+            Dict mapping source codes to newly created Airtable record IDs.
+        """
+        url = f"{AIRTABLE_API_BASE}/{self._base_id}/{table_id}"
+        created_map: dict[str, str] = {}
+
+        for i in range(0, len(records), AIRTABLE_BATCH_SIZE):
+            batch = records[i : i + AIRTABLE_BATCH_SIZE]
+            batch_codes = codes[i : i + AIRTABLE_BATCH_SIZE]
+            payload = {"records": batch, "typecast": True}
+
+            for attempt in range(AIRTABLE_MAX_RETRIES):
+                try:
+                    response = self.session.post(
+                        url, json=payload, timeout=AIRTABLE_REQUEST_TIMEOUT,
+                    )
+
+                    if response.status_code == 429:
+                        retry_after = int(response.headers.get("Retry-After", 30))
+                        logger.warning(
+                            "Airtable rate limited on linked record create. "
+                            "Waiting %ds...", retry_after,
+                        )
+                        time.sleep(retry_after)
+                        continue
+
+                    if response.status_code == 422:
+                        try:
+                            error_msg = response.json().get(
+                                "error", {},
+                            ).get("message", response.text)
+                        except Exception:
+                            error_msg = response.text
+                        logger.error(
+                            "Airtable rejected linked record create (422): %s",
+                            error_msg,
+                        )
+
+                    response.raise_for_status()
+
+                    # Map codes to created record IDs using 1:1 correspondence
+                    resp_data = response.json()
+                    created_records = resp_data.get("records", [])
+                    for code, rec in zip(batch_codes, created_records):
+                        created_map[code] = rec["id"]
+
+                    break
+
+                except requests.RequestException as e:
+                    if attempt == AIRTABLE_MAX_RETRIES - 1:
+                        logger.error(
+                            "Failed to create linked records in table %s "
+                            "(batch starting at %d): %s",
+                            table_id, i, e,
+                        )
+                    else:
+                        wait_time = 2 ** attempt
+                        logger.warning(
+                            "Linked record create attempt %d failed, "
+                            "retrying in %ds: %s",
+                            attempt + 1, wait_time, e,
+                        )
+                        time.sleep(wait_time)
+
+            time.sleep(0.2)
+
+        if created_map:
+            logger.info(
+                "Created %d linked records in table %s", len(created_map), table_id,
+            )
+        return created_map
+
+    # ── Cross-table batch operations ─────────────────────────────────────
+
+    def batch_create_to_table(
+        self,
+        table_id: str,
+        records: list[dict[str, Any]],
+    ) -> int:
+        """
+        Create records in any Airtable table (not just the configured one).
+
+        Uses ``typecast: true`` to auto-create missing singleSelect options.
+
+        Args:
+            table_id: Target Airtable table ID.
+            records: List of dicts, each with key ``"fields"`` containing
+                     ``{field_name_or_id: value}`` mappings.
+
+        Returns:
+            Number of successfully created records.
+        """
+        url = f"{AIRTABLE_API_BASE}/{self._base_id}/{table_id}"
+        success_count = 0
+
+        for i in range(0, len(records), AIRTABLE_BATCH_SIZE):
+            batch = records[i : i + AIRTABLE_BATCH_SIZE]
+            payload = {"records": batch, "typecast": True}
+
+            for attempt in range(AIRTABLE_MAX_RETRIES):
+                try:
+                    response = self.session.post(
+                        url, json=payload, timeout=AIRTABLE_REQUEST_TIMEOUT,
+                    )
+
+                    if response.status_code == 429:
+                        retry_after = int(response.headers.get("Retry-After", 30))
+                        logger.warning(
+                            "Rate limited on table %s create. Waiting %ds...",
+                            table_id, retry_after,
+                        )
+                        time.sleep(retry_after)
+                        continue
+
+                    if response.status_code == 422:
+                        try:
+                            error_msg = response.json().get(
+                                "error", {},
+                            ).get("message", response.text)
+                        except Exception:
+                            error_msg = response.text
+                        logger.error(
+                            "Airtable rejected create on table %s (422): %s",
+                            table_id, error_msg,
+                        )
+
+                    response.raise_for_status()
+                    success_count += len(batch)
+                    break
+
+                except requests.RequestException as e:
+                    if attempt == AIRTABLE_MAX_RETRIES - 1:
+                        logger.error(
+                            "Failed to create records in table %s "
+                            "(batch starting at %d): %s",
+                            table_id, i, e,
+                        )
+                    else:
+                        wait_time = 2 ** attempt
+                        logger.warning(
+                            "Table %s create attempt %d failed, retrying in %ds: %s",
+                            table_id, attempt + 1, wait_time, e,
+                        )
+                        time.sleep(wait_time)
+
+            time.sleep(0.2)
+
+        if success_count:
+            logger.info("Created %d records in table %s", success_count, table_id)
+        return success_count
+
+    def batch_update_to_table(
+        self,
+        table_id: str,
+        updates: list[dict[str, Any]],
+    ) -> int:
+        """
+        Update records in any Airtable table (not just the configured one).
+
+        Uses ``typecast: true`` to auto-create missing singleSelect options.
+
+        Args:
+            table_id: Target Airtable table ID.
+            updates: List of dicts, each with ``"id"`` (record ID) and
+                     ``"fields"`` (changed field values).
+
+        Returns:
+            Number of successfully updated records.
+        """
+        url = f"{AIRTABLE_API_BASE}/{self._base_id}/{table_id}"
+        success_count = 0
+
+        for i in range(0, len(updates), AIRTABLE_BATCH_SIZE):
+            batch = updates[i : i + AIRTABLE_BATCH_SIZE]
+            payload = {"records": batch, "typecast": True}
+
+            for attempt in range(AIRTABLE_MAX_RETRIES):
+                try:
+                    response = self.session.patch(
+                        url, json=payload, timeout=AIRTABLE_REQUEST_TIMEOUT,
+                    )
+
+                    if response.status_code == 429:
+                        retry_after = int(response.headers.get("Retry-After", 30))
+                        logger.warning(
+                            "Rate limited on table %s update. Waiting %ds...",
+                            table_id, retry_after,
+                        )
+                        time.sleep(retry_after)
+                        continue
+
+                    if response.status_code == 422:
+                        try:
+                            error_msg = response.json().get(
+                                "error", {},
+                            ).get("message", response.text)
+                        except Exception:
+                            error_msg = response.text
+                        logger.error(
+                            "Airtable rejected update on table %s (422): %s",
+                            table_id, error_msg,
+                        )
+
+                    response.raise_for_status()
+                    success_count += len(batch)
+                    break
+
+                except requests.RequestException as e:
+                    if attempt == AIRTABLE_MAX_RETRIES - 1:
+                        logger.error(
+                            "Failed to update records in table %s "
+                            "(batch starting at %d): %s",
+                            table_id, i, e,
+                        )
+                    else:
+                        wait_time = 2 ** attempt
+                        logger.warning(
+                            "Table %s update attempt %d failed, retrying in %ds: %s",
+                            table_id, attempt + 1, wait_time, e,
+                        )
+                        time.sleep(wait_time)
+
+            time.sleep(0.2)
+
+        if success_count:
+            logger.info("Updated %d records in table %s", success_count, table_id)
+        return success_count
+
     # ── P→A Write operations ──────────────────────────────────────────────
 
     def batch_create_records(
@@ -733,6 +1041,23 @@ class AirtableClient:
                         )
                         time.sleep(retry_after)
                         continue
+
+                    if response.status_code == 422:
+                        try:
+                            error_body = response.json()
+                            error_msg = error_body.get("error", {}).get(
+                                "message", response.text,
+                            )
+                        except Exception:
+                            error_msg = response.text
+                        logger.error(
+                            "Airtable rejected P→A timestamp update (422): %s",
+                            error_msg,
+                        )
+                        logger.error(
+                            "Payload sent: %s",
+                            payload,
+                        )
 
                     response.raise_for_status()
                     success_count += len(batch)

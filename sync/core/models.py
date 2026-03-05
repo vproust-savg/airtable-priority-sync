@@ -41,17 +41,66 @@ class ConflictStrategy(str, Enum):
 
 # ── Field Mapping ────────────────────────────────────────────────────────────
 
+class LookupConfig(BaseModel):
+    """Config for dynamically resolving a Priority linked-table code → description.
+
+    Many Priority fields are linked tables that store a code (e.g., "1")
+    but display a description (e.g., "Beverages").  At P→A sync time the
+    engine fetches the lookup entity and builds a code→description dict
+    so the human-readable name is written to Airtable.
+    """
+
+    entity: str         # Priority entity name (e.g., "FAMILY_FNC")
+    code_field: str     # Code/key field (e.g., "FAMILYNAME")
+    desc_field: str     # Description field (e.g., "FAMILYDESC")
+
+
+class LinkedRecordAutoCreate(BaseModel):
+    """Config for auto-creating missing linked records in the target Airtable table.
+
+    When a Priority code has no matching Airtable record, this config tells the
+    engine to create a stub record in the target table so the linked record
+    field can still be populated.
+    """
+
+    writable_key_field_id: str              # Field ID to write the key value (e.g., Vendor_ID)
+    extra_fields: dict[str, str] = Field(   # {airtable_field_id: priority_entity_field_name}
+        default_factory=dict,               # e.g., {"fld4hIW7hG8eqrf2M": "SUPDES"}
+    )
+    priority_entity: str | None = None      # Priority entity to fetch extra data (e.g., "SUPPLIERS")
+    priority_key_field: str | None = None   # Key field in that entity (e.g., "SUPNAME")
+
+
+class LinkedRecordConfig(BaseModel):
+    """Config for resolving a Priority code → Airtable linked record ID.
+
+    Some Airtable fields are linked records (e.g., "Preferred Vendor" links to
+    the Vendors table).  Writing to them requires the Airtable record ID of the
+    target record, not a text value.  At P→A sync time the engine fetches the
+    target table and builds a {match_value: record_id} map.
+    """
+
+    table_id: str          # Airtable table ID (e.g., "tblvenpZXbcgGz8Ry")
+    match_field_id: str    # Field ID in target table to match on (e.g., "fldLkVY6ul00KnMJO")
+    auto_create: LinkedRecordAutoCreate | None = None  # Auto-create missing records
+
+
 class FieldMapping(BaseModel):
     """Defines how one Airtable field maps to one Priority field."""
 
     airtable_field: str                    # Human-readable name (for logging/display)
     airtable_field_id: str | None = None   # Stable Airtable field ID (for API calls)
     priority_field: str
-    transform: Literal["clean", "format_price", "to_int", "to_float", "priority_yn"]
+    transform: Literal[
+        "clean", "format_price", "to_int", "to_float", "priority_yn",
+        "priority_lookup", "linked_record",
+    ]
     required: bool = False
-    field_type: Literal["str", "float", "int"] = "str"
+    field_type: Literal["str", "float", "int", "linked_record"] = "str"
     max_length: int | None = None
     create_only: bool = False  # If True, only sent on POST (create), not PATCH (update)
+    lookup: LookupConfig | None = None  # For linked-table reverse lookups (P→A only)
+    linked_record: LinkedRecordConfig | None = None  # For Airtable linked record fields (P→A only)
 
 
 # ── Sync Records ─────────────────────────────────────────────────────────────

@@ -295,6 +295,28 @@ Body: {
 - **400 "Quantity missing"** on price list POST → QUANT field is required
 - **400 on PUNITNAME PATCH** → this field is create_only; can only be set on POST
 
+### Priority Linked Tables (Code → Description Pattern)
+
+Many Priority fields are **linked tables** that store a **code** (e.g., "1", "3") but display a **description** (e.g., "Beverages", "Caviar"). In Airtable, these are typically modeled as:
+- A **writable singleSelect** field with text names (e.g., "Kelsey_Types/Accounting Family")
+- A **formula** field that converts names to codes via SWITCH (e.g., "Accounting Family")
+
+**A→P direction:** Read from the formula (gets the code) → send to Priority. Works as-is.
+
+**P→A direction:** Read the code from Priority → **dynamically fetch the lookup table** from Priority at sync time → convert code to text name → write to the writable singleSelect. **NEVER write to the formula field** (422 error).
+
+**API access:** Priority lookup table entities (e.g., `FAMILY_FNC`) may not have API access enabled by default. If a `GET` returns **400 "API cannot be run for this form"**, ask the user to enable API access in Priority for that form.
+
+**Known lookup tables:**
+
+| Priority Field | Lookup Entity | Code Field | Desc Field | Airtable Writable Field |
+|---|---|---|---|---|
+| `ACCFAMILYNAME` | `FAMILY_FNC` | `FAMILYNAME` | `FAMILYDESC` | Kelsey_Types/Accounting Family |
+| `FAMILYNAME` | `FAMILY_LOG` | `FAMILYNAME` | `FAMILYDESC` | Product Type (P→A only; A→P uses formula "Family (Number from Product Type)") |
+| _(more to be added as discovered)_ | | | | |
+
+**Implementation:** Use `lookup=LookupConfig(entity=..., code_field=..., desc_field=...)` on the FieldMapping with `transform="priority_lookup"`. The engine fetches the lookup table once per sync run and applies the reverse mapping automatically. See `sync/core/models.py` for `LookupConfig`.
+
 ---
 
 ## Airtable Field Types — CRITICAL for P→A Writes
@@ -316,6 +338,7 @@ These Airtable fields are computed — they **cannot be set via the API**. Attem
 | `Allocate Inventory` | formula | Computed from Accounting Family |
 | `Vendor SKU Trim` | formula | Computed from Vendor SKU |
 | `Family (Number from Product Type)` | formula | Computed |
+| `Accounting Family` | formula | SWITCH on Kelsey_Types/Accounting Family — write to the singleSelect instead |
 
 **Rule:** Before adding a field to P→A mapping, verify its Airtable type via `GET /meta/bases/{baseId}/tables`. Only `singleLineText`, `number`, `singleSelect`, `multipleSelects`, `dateTime`, `checkbox` etc. are writable.
 

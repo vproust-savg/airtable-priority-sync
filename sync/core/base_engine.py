@@ -216,6 +216,8 @@ def map_priority_to_airtable(
     priority_fields: dict[str, Any],
     field_map: list[FieldMapping],
     is_create: bool = False,
+    lookups: dict[str, dict[str, str]] | None = None,
+    linked_records: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """
     Transform a Priority record's fields into an Airtable-ready payload.
@@ -226,6 +228,10 @@ def map_priority_to_airtable(
         field_map: The field mapping list to use.
         is_create: If True, include create_only fields (e.g. PARTDES).
                    If False, skip create_only fields (update mode).
+        lookups: Dict of {entity_name: {code: description}} for linked-table
+                 reverse lookups.  Fetched once per sync run.
+        linked_records: Dict of {table_id: {match_value: record_id}} for
+                        Airtable linked record resolution.  Fetched once per run.
 
     Returns:
         dict mapping Airtable field names to transformed values.
@@ -238,8 +244,34 @@ def map_priority_to_airtable(
             continue
 
         raw_value = priority_fields.get(mapping.priority_field)
-        transform_fn = TRANSFORMS[mapping.transform]
-        cleaned = transform_fn(raw_value)
+
+        # Handle priority_lookup transform (linked-table code → description)
+        if mapping.transform == "priority_lookup" and mapping.lookup and lookups:
+            cleaned = clean(raw_value)
+            if cleaned:
+                lookup_dict = lookups.get(mapping.lookup.entity, {})
+                cleaned = lookup_dict.get(cleaned, cleaned)  # fallback to raw code
+
+        # Handle linked_record transform (Priority code → Airtable record ID array)
+        elif mapping.transform == "linked_record" and mapping.linked_record and linked_records is not None:
+            cleaned = clean(raw_value)
+            if cleaned:
+                lr_map = linked_records.get(mapping.linked_record.table_id, {})
+                rec_id = lr_map.get(cleaned)
+                if rec_id:
+                    cleaned = [rec_id]  # Airtable linked records = array of record IDs
+                else:
+                    logger.warning(
+                        "No linked record found for %s=%s in table %s",
+                        mapping.priority_field, cleaned, mapping.linked_record.table_id,
+                    )
+                    continue  # skip — don't write an invalid value
+            else:
+                continue  # empty value — skip
+
+        else:
+            transform_fn = TRANSFORMS[mapping.transform]
+            cleaned = transform_fn(raw_value)
 
         if cleaned is None:
             continue
@@ -307,6 +339,13 @@ def build_airtable_patch(
                 if str(priority_value) != str(current_value or ""):
                     patch[airtable_field] = priority_value
 
+        elif mapping.field_type == "linked_record":
+            # Linked record comparison — both sides are arrays of record IDs
+            p_list = priority_value if isinstance(priority_value, list) else []
+            a_list = current_value if isinstance(current_value, list) else []
+            if sorted(p_list) != sorted(a_list):
+                patch[airtable_field] = priority_value
+
         else:
             # String comparison
             p_str = str(priority_value).strip()
@@ -368,6 +407,28 @@ class BaseSyncEngine(abc.ABC):
         self.sync_log: SyncLogClient = self._create_sync_log_client()
         self.stats = SyncStats()
 
+        # Set Sentry tags so all events during this sync are labelled
+        try:
+            import sentry_sdk
+            sentry_sdk.set_tag("workflow", self.workflow_name)
+            sentry_sdk.set_tag("direction", self.direction.value)
+            sentry_sdk.set_tag("mode", self.mode.value)
+            sentry_sdk.set_tag("trigger", self.trigger)
+            sentry_sdk.set_tag("dry_run", str(self.dry_run))
+            # Derive Priority environment from URL override
+            if self.priority_url_override:
+                from sync.core.config import PRIORITY_UAT_COMPANY, PRIORITY_PROD_COMPANY
+                if PRIORITY_UAT_COMPANY and PRIORITY_UAT_COMPANY in self.priority_url_override:
+                    sentry_sdk.set_tag("priority_env", "uat")
+                elif PRIORITY_PROD_COMPANY and PRIORITY_PROD_COMPANY in self.priority_url_override:
+                    sentry_sdk.set_tag("priority_env", "production")
+                else:
+                    sentry_sdk.set_tag("priority_env", "sandbox")
+            else:
+                sentry_sdk.set_tag("priority_env", "default")
+        except Exception:
+            pass  # Sentry not available or not initialized
+
     # ── Abstract / hook methods (subclasses override) ─────────────────────
 
     @abc.abstractmethod
@@ -421,6 +482,170 @@ class BaseSyncEngine(abc.ABC):
     @abc.abstractmethod
     def _get_p2a_priority_select(self, mode: SyncMode) -> list[str]:
         """Return the Priority $select fields for P->A fetch."""
+
+    def _fetch_priority_lookups(
+        self, field_map: list[FieldMapping],
+    ) -> dict[str, dict[str, str]]:
+        """
+        Fetch Priority lookup tables for fields that use priority_lookup transform.
+
+        Scans the field map for fields with a LookupConfig, fetches each unique
+        entity once, and returns a dict of {entity: {code: description}}.
+        """
+        lookups: dict[str, dict[str, str]] = {}
+        seen_entities: set[str] = set()
+
+        for mapping in field_map:
+            if mapping.lookup and mapping.lookup.entity not in seen_entities:
+                seen_entities.add(mapping.lookup.entity)
+                try:
+                    lookup_dict = self.priority.fetch_lookup_table(
+                        mapping.lookup.entity,
+                        mapping.lookup.code_field,
+                        mapping.lookup.desc_field,
+                    )
+                    lookups[mapping.lookup.entity] = lookup_dict
+                    print_detail(
+                        f"Loaded {len(lookup_dict)} entries from "
+                        f"lookup table {mapping.lookup.entity}"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to fetch lookup table %s: %s",
+                        mapping.lookup.entity,
+                        e,
+                    )
+
+        return lookups
+
+    def _fetch_linked_record_maps(
+        self, field_map: list[FieldMapping],
+    ) -> dict[str, dict[str, str]]:
+        """
+        Fetch Airtable linked record tables for fields that use linked_record transform.
+
+        Scans the field map for fields with a LinkedRecordConfig, fetches each
+        unique target table once, and returns {table_id: {match_value: record_id}}.
+        """
+        lr_maps: dict[str, dict[str, str]] = {}
+        seen_tables: set[str] = set()
+
+        for mapping in field_map:
+            if mapping.linked_record and mapping.linked_record.table_id not in seen_tables:
+                seen_tables.add(mapping.linked_record.table_id)
+                try:
+                    lr_map = self.airtable.fetch_linked_record_map(
+                        mapping.linked_record.table_id,
+                        mapping.linked_record.match_field_id,
+                    )
+                    lr_maps[mapping.linked_record.table_id] = lr_map
+                except Exception as e:
+                    logger.warning(
+                        "Failed to fetch linked record table %s: %s",
+                        mapping.linked_record.table_id,
+                        e,
+                    )
+
+        return lr_maps
+
+    def _auto_create_missing_linked_records(
+        self,
+        field_map: list[FieldMapping],
+        priority_records: list[dict[str, Any]],
+        linked_records: dict[str, dict[str, str]],
+    ) -> dict[str, dict[str, str]]:
+        """
+        Auto-create missing linked records in Airtable for fields with auto_create config.
+
+        For each linked_record field with auto_create:
+        1. Scan priority_records for codes not present in the linked_records map
+        2. Fetch extra data (e.g., company name) from Priority entity
+        3. Create stub records in the target Airtable table
+        4. Update the linked_records map with new record IDs
+
+        Returns the updated linked_records dict.
+        """
+        for mapping in field_map:
+            if not (mapping.linked_record and mapping.linked_record.auto_create):
+                continue
+
+            lr_config = mapping.linked_record
+            auto = lr_config.auto_create
+            table_id = lr_config.table_id
+            existing_map = linked_records.get(table_id, {})
+
+            # Collect unique codes from Priority that are missing in Airtable
+            missing_codes: set[str] = set()
+            for record in priority_records:
+                raw = record.get(mapping.priority_field)
+                if raw is not None:
+                    code = str(raw).strip()
+                    if code and code not in existing_map:
+                        missing_codes.add(code)
+
+            if not missing_codes:
+                continue
+
+            logger.info(
+                "Found %d missing linked records for %s in table %s",
+                len(missing_codes), mapping.airtable_field, table_id,
+            )
+
+            # Fetch extra field data from Priority entity if configured
+            extra_data: dict[str, str] = {}
+            if auto.priority_entity and auto.priority_key_field and auto.extra_fields:
+                # Get the first extra field's Priority field name for the lookup
+                priority_desc_fields = list(auto.extra_fields.values())
+                if priority_desc_fields:
+                    extra_data = self.priority.fetch_lookup_table(
+                        entity=auto.priority_entity,
+                        code_field=auto.priority_key_field,
+                        desc_field=priority_desc_fields[0],
+                    )
+
+            # Build Airtable records to create (sorted for deterministic order)
+            sorted_codes = sorted(missing_codes)
+            to_create: list[dict[str, Any]] = []
+            for code in sorted_codes:
+                fields: dict[str, Any] = {
+                    auto.writable_key_field_id: code,
+                }
+                # Add extra fields (e.g., Company Name from SUPDES)
+                for at_field_id, _priority_field in auto.extra_fields.items():
+                    desc = extra_data.get(code, "")
+                    if desc:
+                        fields[at_field_id] = desc
+                to_create.append({"fields": fields})
+
+            # Create records in Airtable — pass codes for 1:1 mapping
+            created_map = self.airtable.create_linked_records(
+                table_id=table_id,
+                records=to_create,
+                codes=sorted_codes,
+            )
+
+            if created_map:
+                # Merge newly created records into the linked_records map
+                if table_id not in linked_records:
+                    linked_records[table_id] = {}
+                linked_records[table_id].update(created_map)
+                logger.info(
+                    "Auto-created %d vendor records in Airtable", len(created_map),
+                )
+
+        return linked_records
+
+    def _get_p2a_extra_field_map(self) -> list[FieldMapping]:
+        """
+        Return additional field maps used by _get_p2a_extra_fields() for comparison.
+
+        Override in workflows that merge secondary entities (e.g., products merges
+        FNCPART + PRDPART).  The returned mappings are appended to the main P→A
+        field map so that build_airtable_patch() can compare them correctly.
+
+        Default: empty (no extra field maps).
+        """
+        return []
 
     def _pre_a2p_batch(
         self, records: list[dict[str, Any]]
@@ -479,6 +704,27 @@ class BaseSyncEngine(abc.ABC):
             Default: empty dict.
         """
         return {}
+
+    def _post_p2a_sync(
+        self,
+        priority_records: list[dict[str, Any]],
+        airtable_by_key: dict[str, dict[str, Any]],
+    ) -> None:
+        """
+        Hook called after the main P→A batch writes (creates + updates) complete,
+        before timestamps are updated.
+
+        Override to run additional sync steps that depend on both Priority data
+        and existing Airtable records — e.g., syncing sub-form data into separate
+        Airtable linked tables (shelf lives, etc.).
+
+        Args:
+            priority_records: The full list of Priority records fetched for this run.
+            airtable_by_key: Map of ``{key: {"record_id": str, "fields": dict}}``
+                             for all existing Airtable records.
+
+        Default: no-op.
+        """
 
     @abc.abstractmethod
     def _get_key_field_name(self) -> str:
@@ -893,6 +1139,18 @@ class BaseSyncEngine(abc.ABC):
             status_str = f"HTTP {status_code}" if status_code else "Error"
             print_record_line(index, total, key, "ERROR", f"CREATE failed ({status_str})")
             logger.error("Failed to create %s: %s", key, message)
+
+            try:
+                import sentry_sdk
+                with sentry_sdk.new_scope() as scope:
+                    scope.set_extra("entity_key", key)
+                    scope.set_extra("http_status", status_code)
+                    scope.set_extra("priority_message", message)
+                    scope.set_extra("payload_fields", list(payload.keys()))
+                    sentry_sdk.capture_exception(e)
+            except Exception:
+                pass
+
             return result
 
     # ── Conflict detection (A->P) ─────────────────────────────────────
@@ -1019,6 +1277,15 @@ class BaseSyncEngine(abc.ABC):
             ))
             print_record_line(index, total, key, "ERROR", f"GET failed: {e}")
             logger.error("Failed to GET %s from Priority: %s", key, e)
+
+            try:
+                import sentry_sdk
+                with sentry_sdk.new_scope() as scope:
+                    scope.set_extra("entity_key", key)
+                    sentry_sdk.capture_exception(e)
+            except Exception:
+                pass
+
             return result
 
         if priority_current is None:
@@ -1128,6 +1395,18 @@ class BaseSyncEngine(abc.ABC):
             status_str = f"HTTP {status_code}" if status_code else "Error"
             print_record_line(index, total, key, "ERROR", f"UPDATE failed ({status_str})")
             logger.error("Failed to update %s: %s", key, message)
+
+            try:
+                import sentry_sdk
+                with sentry_sdk.new_scope() as scope:
+                    scope.set_extra("entity_key", key)
+                    scope.set_extra("http_status", status_code)
+                    scope.set_extra("priority_message", message)
+                    scope.set_extra("patch_fields", list(patch_body.keys()))
+                    sentry_sdk.capture_exception(e)
+            except Exception:
+                pass
+
             return result
 
     # ── Conflict detection (P->A) ─────────────────────────────────────
@@ -1294,6 +1573,20 @@ class BaseSyncEngine(abc.ABC):
         # Choose field map based on mode
         field_map = self._get_p2a_field_map(self.mode)
 
+        # Fetch Priority lookup tables for linked-table fields (once per run)
+        # Stored on self so _get_p2a_extra_fields() can also use them
+        lookups = self._fetch_priority_lookups(field_map)
+        self._p2a_lookups = lookups
+
+        # Fetch Airtable linked record maps (once per run)
+        linked_records = self._fetch_linked_record_maps(field_map)
+
+        # Auto-create missing linked records if configured
+        linked_records = self._auto_create_missing_linked_records(
+            field_map, priority_records, linked_records,
+        )
+        self._p2a_linked_records = linked_records
+
         # Queues for batch operations
         creates: list[dict[str, Any]] = []  # {"fields": {...}}
         updates: list[dict[str, Any]] = []  # {"id": record_id, "fields": {...}}
@@ -1325,6 +1618,8 @@ class BaseSyncEngine(abc.ABC):
                     priority_record,
                     field_map=field_map,
                     is_create=is_new,
+                    lookups=lookups,
+                    linked_records=linked_records,
                 )
             except Exception as e:
                 print_record_line(
@@ -1371,8 +1666,11 @@ class BaseSyncEngine(abc.ABC):
                 if extra_fields:
                     all_mapped.update(extra_fields)
 
+                # Include extra field maps (e.g., FNCPART, PRDPART) for comparison
+                comparison_map = field_map + self._get_p2a_extra_field_map()
+
                 patch = build_airtable_patch(
-                    all_mapped, current_fields, field_map=field_map,
+                    all_mapped, current_fields, field_map=comparison_map,
                 )
 
                 now_short = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
@@ -1479,6 +1777,9 @@ class BaseSyncEngine(abc.ABC):
                 print_section(f"Updating {len(updates)} Airtable records...")
                 updated_count = self.airtable.batch_update_records(updates)
                 print_detail(f"Updated {updated_count} records.")
+
+            # ── Step 5b: Post-sync hook (sub-form → linked table) ────────
+            self._post_p2a_sync(priority_records, airtable_by_key)
 
             # ── Step 6: Update P->A timestamps ───────────────────────────
             if timestamp_updates:

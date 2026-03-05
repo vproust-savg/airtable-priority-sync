@@ -11,7 +11,12 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from sync.core.models import FieldMapping
+from sync.core.models import (
+    FieldMapping,
+    LinkedRecordAutoCreate,
+    LinkedRecordConfig,
+    LookupConfig,
+)
 from sync.core.utils import clean, format_price, priority_yn, to_float, to_int
 
 # Import secondary entity field mappings (merged from fncpart/prdpart)
@@ -494,6 +499,45 @@ P2A_FIELD_MAP: list[FieldMapping] = [
     #       Allocate Inventory are FORMULAS or LOOKUPS in Airtable — can't write.
     FieldMapping(airtable_field="Priority Status", airtable_field_id="fldqt4AnlaxYgYhXw", priority_field="STATDES", transform="clean"),
     FieldMapping(airtable_field="Type (P/R/O)", airtable_field_id="fld5uQwSdX7lEn0PO", priority_field="TYPE", transform="clean"),
+    # ── Linked-table lookup fields ───────────────────────────────────────────
+    # Product family — code in Priority, description written to Airtable singleSelect.
+    # A→P uses formula "Family (Number from Product Type)" (reads code). P→A writes here.
+    FieldMapping(
+        airtable_field="Product Type",
+        airtable_field_id="fldxgGB8vwPpxOrYL",
+        priority_field="FAMILYNAME",
+        transform="priority_lookup",
+        field_type="str",
+        lookup=LookupConfig(
+            entity="FAMILY_LOG",
+            code_field="FAMILYNAME",
+            desc_field="FAMILYDESC",
+        ),
+    ),
+    # ── Linked record fields ─────────────────────────────────────────────
+    # Preferred Vendor — Priority SUPNAME (vendor code) → Airtable linked record.
+    # Resolved by fetching the Vendors table and matching on Priority Vendor ID.
+    # If the vendor doesn't exist in Airtable, auto-creates a stub record with
+    # Vendor_ID and Company Name (fetched from Priority SUPPLIERS entity).
+    FieldMapping(
+        airtable_field="Preferred Vendor",
+        airtable_field_id="fld35rCJHCF81Weaa",
+        priority_field="SUPNAME",
+        transform="linked_record",
+        field_type="linked_record",
+        linked_record=LinkedRecordConfig(
+            table_id="tblvenpZXbcgGz8Ry",        # Vendors table
+            match_field_id="fldLkVY6ul00KnMJO",   # Priority Vendor ID
+            auto_create=LinkedRecordAutoCreate(
+                writable_key_field_id="fldQzGeL311gCqV6M",  # Vendor_ID
+                extra_fields={
+                    "fld4hIW7hG8eqrf2M": "SUPDES",  # Company Name from SUPPLIERS
+                },
+                priority_entity="SUPPLIERS",
+                priority_key_field="SUPNAME",
+            ),
+        ),
+    ),
 ]
 
 

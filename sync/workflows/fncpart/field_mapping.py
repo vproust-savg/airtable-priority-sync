@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from sync.core.models import FieldMapping
+from sync.core.models import FieldMapping, LookupConfig
 from sync.core.utils import clean, format_price, to_float, to_int, priority_yn
 
 
@@ -117,19 +117,19 @@ A2P_FIELD_MAP: list[FieldMapping] = [
 
 P2A_FIELD_MAP: list[FieldMapping] = [
     FieldMapping(
-        airtable_field="Accounting Family",
-        airtable_field_id="fldlGOIIFAYsfACLV",
+        airtable_field="Kelsey_Types/Accounting Family",
+        airtable_field_id="fldA9ti7pRdS5VpuT",
         priority_field="ACCFAMILYNAME",
-        transform="clean",
+        transform="priority_lookup",
         field_type="str",
+        lookup=LookupConfig(
+            entity="FAMILY_FNC",
+            code_field="FAMILYNAME",
+            desc_field="FAMILYDESC",
+        ),
     ),
-    FieldMapping(
-        airtable_field="Filemaker Weight",
-        airtable_field_id="fldmWMrWRPRf80YvB",
-        priority_field="WEIGHT",
-        transform="to_float",
-        field_type="float",
-    ),
+    # NOTE: "Filemaker Weight" (WEIGHT → fldmWMrWRPRf80YvB) removed from P2A —
+    # field is computed/formula in Airtable (422 error). Logged in tasks/excluded_p2a_fields.md
     FieldMapping(
         airtable_field="HTS Code",
         airtable_field_id="fldLqUOHkGk3S6oqO",

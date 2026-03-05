@@ -21,7 +21,7 @@ def _validate_mappings(
     - No duplicate priority fields
     - No duplicate airtable field IDs
     """
-    valid_transforms = {"clean", "format_price", "to_int", "to_float", "priority_yn"}
+    valid_transforms = {"clean", "format_price", "to_int", "to_float", "priority_yn", "priority_lookup", "linked_record"}
 
     seen_priority: set[str] = set()
     seen_field_ids: set[str] = set()

@@ -91,5 +91,46 @@ WEBHOOK_API_KEY = os.environ.get("WEBHOOK_API_KEY", "").strip() or None
 # ── Timezone ──────────────────────────────────────────────────────────────────
 LA_TIMEZONE = ZoneInfo("America/Los_Angeles")
 
+# ── Sentry (optional — error monitoring) ──────────────────────────────────────
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip() or None
+SENTRY_ENVIRONMENT = os.environ.get("SENTRY_ENVIRONMENT", "development").strip()
+SENTRY_TRACES_SAMPLE_RATE = float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1"))
+
+_sentry_initialized = False
+
+
+def init_sentry() -> None:
+    """Initialize Sentry SDK if SENTRY_DSN is configured. Safe to call multiple times."""
+    global _sentry_initialized
+    if _sentry_initialized or not SENTRY_DSN:
+        return
+
+    import logging
+
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.logging import LoggingIntegration
+    from sentry_sdk.integrations.starlette import StarletteIntegration
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=SENTRY_ENVIRONMENT,
+        traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
+        release=os.environ.get("COMMIT_SHA") or None,
+        integrations=[
+            StarletteIntegration(),
+            FastApiIntegration(),
+            LoggingIntegration(
+                level=logging.INFO,
+                event_level=logging.ERROR,
+            ),
+        ],
+        send_default_pii=False,
+    )
+
+    _sentry_initialized = True
+    logging.getLogger(__name__).info("Sentry initialized (env: %s)", SENTRY_ENVIRONMENT)
+
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_DIR = "logs"

@@ -362,6 +362,54 @@ class PriorityClient:
 
         return response.json()
 
+    # ── Lookup tables ──────────────────────────────────────────────────
+
+    def fetch_lookup_table(
+        self,
+        entity: str,
+        code_field: str,
+        desc_field: str,
+    ) -> dict[str, str]:
+        """
+        Fetch a Priority lookup/linked-table and return a code → description dict.
+
+        Many Priority fields are linked tables that store a code (e.g., "1")
+        but display a description (e.g., "Beverages").  This method fetches
+        the full lookup table so the P→A sync can write the human-readable
+        description to Airtable instead of the numeric code.
+
+        Args:
+            entity: Priority entity name (e.g., "FAMILY_FNC").
+            code_field: The code/key field (e.g., "FAMILYNAME").
+            desc_field: The description field (e.g., "FAMILYDESC").
+
+        Returns:
+            Dict mapping code strings to description strings.
+            E.g. {"1": "Beverages", "2": "Butter", ...}
+        """
+        url = (
+            f"{self.api_url}{entity}"
+            f"?$select={code_field},{desc_field}"
+        )
+        response = self._request("GET", url)
+        if response is None:
+            logger.warning("Failed to fetch lookup table %s", entity)
+            return {}
+
+        data = response.json()
+        records = data.get("value", [])
+        lookup = {
+            str(r[code_field]).strip(): str(r[desc_field]).strip()
+            for r in records
+            if r.get(code_field) is not None
+        }
+        logger.info(
+            "Loaded %d entries from lookup table %s",
+            len(lookup),
+            entity,
+        )
+        return lookup
+
     # ── Write operations ─────────────────────────────────────────────────
 
     def create_record(self, payload: dict[str, Any]) -> dict[str, Any]:
