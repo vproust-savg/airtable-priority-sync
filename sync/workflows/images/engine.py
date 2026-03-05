@@ -284,6 +284,7 @@ class ImageSyncEngine:
                     "record_id": result.airtable_record_id,
                     "synced_at": now_utc,
                     "sync_comment": comment,
+                    "_post_comment": True,
                 })
             elif result.action == SyncAction.ERROR:
                 # Write error comment but don't update sync timestamp
@@ -291,12 +292,26 @@ class ImageSyncEngine:
                     "record_id": result.airtable_record_id,
                     "synced_at": None,
                     "sync_comment": comment,
+                    "_post_comment": True,
                 })
 
         if timestamp_updates:
             print_section("Updating Airtable timestamps")
             updated = self.airtable.batch_update_timestamps(timestamp_updates)
             print_detail(f"Timestamps updated: {updated}")
+
+            # Post record comments
+            pending_comments = [
+                {"record_id": u["record_id"], "text": u["sync_comment"]}
+                for u in timestamp_updates
+                if u.get("sync_comment") and u.get("_post_comment")
+            ]
+            if pending_comments:
+                print_section("Posting record comments")
+                comment_count = self.airtable.post_record_comments(
+                    pending_comments,
+                )
+                print_detail(f"Comments posted: {comment_count}")
 
     @staticmethod
     def _compose_comment(result: SyncRecord, timestamp: str) -> str:

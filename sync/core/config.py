@@ -32,6 +32,9 @@ AIRTABLE_API_BASE = "https://api.airtable.com/v0"
 AIRTABLE_BATCH_SIZE = 10  # Max records per batch update
 AIRTABLE_REQUEST_TIMEOUT = 30  # seconds
 AIRTABLE_MAX_RETRIES = 3
+AIRTABLE_COMMENTS_ENABLED = os.environ.get(
+    "AIRTABLE_COMMENTS_ENABLED", "true"
+).strip().lower() in ("true", "1", "yes")
 
 # ── Airtable Test Base (for safe testing) ─────────────────────────────────────
 AIRTABLE_TEST_BASE_ID = os.environ.get("AIRTABLE_TEST_BASE_ID", "").strip() or None

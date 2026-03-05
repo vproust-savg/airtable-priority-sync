@@ -17,6 +17,7 @@ from sync.core.config import (
     AIRTABLE_API_BASE,
     AIRTABLE_BASE_ID,
     AIRTABLE_BATCH_SIZE,
+    AIRTABLE_COMMENTS_ENABLED,
     AIRTABLE_MAX_RETRIES,
     AIRTABLE_REQUEST_TIMEOUT,
     AIRTABLE_TOKEN,
@@ -730,5 +731,83 @@ class AirtableClient:
                         time.sleep(wait_time)
 
             time.sleep(0.2)
+
+        return success_count
+
+    # ── Record Comments ───────────────────────────────────────────────────
+
+    def post_record_comments(
+        self,
+        comments: list[dict[str, str]],
+    ) -> int:
+        """
+        Post a comment to each record's comment thread.
+
+        The Airtable Comments API is per-record (no batching).
+        Comment failures are logged as warnings but never raise.
+
+        Args:
+            comments: list of dicts with keys:
+                - record_id: Airtable record ID (e.g., "recXXX")
+                - text: Comment text to post
+
+        Returns:
+            Number of successfully posted comments.
+        """
+        if not AIRTABLE_COMMENTS_ENABLED:
+            logger.debug(
+                "Airtable comments disabled — skipping %d comments.",
+                len(comments),
+            )
+            return 0
+
+        success_count = 0
+
+        for item in comments:
+            record_id = item.get("record_id", "")
+            text = item.get("text", "")
+
+            if not record_id or not text:
+                continue
+
+            url = f"{self._base_url}/{record_id}/comments"
+            payload = {"text": text}
+
+            try:
+                response = self.session.post(
+                    url,
+                    json=payload,
+                    timeout=AIRTABLE_REQUEST_TIMEOUT,
+                )
+
+                if response.status_code == 429:
+                    retry_after = int(
+                        response.headers.get("Retry-After", 30)
+                    )
+                    logger.warning(
+                        "Airtable rate limited on comment POST. "
+                        "Waiting %ds...",
+                        retry_after,
+                    )
+                    time.sleep(retry_after)
+                    # Retry once after waiting
+                    response = self.session.post(
+                        url,
+                        json=payload,
+                        timeout=AIRTABLE_REQUEST_TIMEOUT,
+                    )
+
+                response.raise_for_status()
+                success_count += 1
+
+            except requests.exceptions.RequestException as e:
+                logger.warning(
+                    "Failed to post comment on record %s: %s",
+                    record_id,
+                    e,
+                )
+
+            # Rate limit: ~4 req/s (under 5 req/s limit)
+            time.sleep(0.25)
 
         return success_count

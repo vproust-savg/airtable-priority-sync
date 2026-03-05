@@ -602,6 +602,9 @@ class BaseSyncEngine(abc.ABC):
                     "synced_at": now_utc,
                     "priority_udate": result.priority_udate,
                     "sync_comment": comment,
+                    "_post_comment": result.action in (
+                        SyncAction.CREATE, SyncAction.UPDATE,
+                    ),
                 })
             elif result.action == SyncAction.ERROR and result.airtable_record_id:
                 # Write error to Sync Comments but don't update the sync timestamp
@@ -610,6 +613,7 @@ class BaseSyncEngine(abc.ABC):
                     "synced_at": None,
                     "priority_udate": None,
                     "sync_comment": comment,
+                    "_post_comment": True,
                 })
 
         # Step 4: Update Airtable timestamps
@@ -619,6 +623,19 @@ class BaseSyncEngine(abc.ABC):
             print_section("Updating Airtable timestamps...")
             updated = self.airtable.batch_update_timestamps(timestamp_updates)
             print_detail(f"{updated} records stamped across {total_batches} batches.")
+
+            # Post record comments (only for CREATE, UPDATE, ERROR)
+            pending_comments = [
+                {"record_id": u["record_id"], "text": u["sync_comment"]}
+                for u in timestamp_updates
+                if u.get("sync_comment") and u.get("_post_comment")
+            ]
+            if pending_comments:
+                print_section("Posting record comments...")
+                comment_count = self.airtable.post_record_comments(
+                    pending_comments,
+                )
+                print_detail(f"{comment_count} comments posted.")
         elif self.dry_run:
             print()
             print_section("DRY RUN -- Skipping Airtable timestamp updates.")
@@ -1116,6 +1133,7 @@ class BaseSyncEngine(abc.ABC):
                     "synced_at": datetime.now(timezone.utc).isoformat(),
                     "priority_udate": record_udate,
                     "sync_comment": comment,
+                    "_post_comment": bool(patch),  # True for UPDATE, False for SKIP
                 })
 
         # Store max UDATE for sync log
@@ -1151,6 +1169,19 @@ class BaseSyncEngine(abc.ABC):
                     timestamp_updates,
                 )
                 print_detail(f"Timestamped {ts_count} records.")
+
+                # Post record comments (only for UPDATE, not SKIP)
+                pending_comments = [
+                    {"record_id": u["record_id"], "text": u["sync_comment"]}
+                    for u in timestamp_updates
+                    if u.get("sync_comment") and u.get("_post_comment")
+                ]
+                if pending_comments:
+                    print_section("Posting record comments...")
+                    comment_count = self.airtable.post_record_comments(
+                        pending_comments,
+                    )
+                    print_detail(f"{comment_count} comments posted.")
 
         # ── Summary ──────────────────────────────────────────────────────
         self._print_final_summary()
