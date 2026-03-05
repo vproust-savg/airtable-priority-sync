@@ -2,7 +2,7 @@
 """
 Entry point for Airtable ↔ Priority ERP Sync.
 
-Supports 10 workflows via --workflow flag:
+Supports 11 workflows via --workflow flag:
   products        (LOGPART)    — Parts All
   fncpart         (FNCPART)    — Fin. Params Parts
   prdpart         (PRDPART)    — MRP for Parts
@@ -13,6 +13,7 @@ Supports 10 workflows via --workflow flag:
   fnccust         (FNCCUST)    — Fin. Params Customers
   customer-prices (PRICELIST)  — Customer Price Lists
   images          (LOGPART)    — Product Images (A→P only)
+  techsheets      (LOGPART)    — Tech Sheet PDFs (A→P only)
 
 Usage:
     python -m sync.run_sync --workflow products                   # Full product sync
@@ -65,6 +66,9 @@ def _get_engine_class(workflow: str):
     elif workflow == "images":
         from sync.workflows.images.engine import ImageSyncEngine
         return ImageSyncEngine
+    elif workflow == "techsheets":
+        from sync.workflows.techsheets.engine import TechSheetSyncEngine
+        return TechSheetSyncEngine
     else:
         raise ValueError(f"Unknown workflow: {workflow}")
 
@@ -79,7 +83,7 @@ def main() -> int:
             "products", "fncpart", "prdpart",
             "vendors", "fncsup", "vendor-prices",
             "customers", "fnccust", "customer-prices",
-            "images",
+            "images", "techsheets",
         ],
         default="products",
         help="Sync workflow to run (default: products)",

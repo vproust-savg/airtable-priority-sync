@@ -76,6 +76,7 @@ def _lazy_register_workflows() -> None:
     from sync.workflows.fnccust.engine import FnccustSyncEngine
     from sync.workflows.customer_prices.engine import CustomerPriceSyncEngine
     from sync.workflows.images.engine import ImageSyncEngine
+    from sync.workflows.techsheets.engine import TechSheetSyncEngine
 
     _register_workflow("products", ProductSyncEngine, has_status_mode=True)
     _register_workflow("fncpart", FncpartSyncEngine, has_status_mode=False)
@@ -87,6 +88,7 @@ def _lazy_register_workflows() -> None:
     _register_workflow("fnccust", FnccustSyncEngine, has_status_mode=False)
     _register_workflow("customer-prices", CustomerPriceSyncEngine, has_status_mode=False)
     _register_workflow("images", ImageSyncEngine, has_status_mode=False)
+    _register_workflow("techsheets", TechSheetSyncEngine, has_status_mode=False)
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -470,6 +472,17 @@ def images_sync(
     """A→P image sync (upload product images to Priority)."""
     _verify_query_key(key)
     return _start_workflow("images", background_tasks, priority_url_override=_resolve_priority_env(env))
+
+
+# ── Tech Sheets ────────────────────────────────────────────────────────────
+
+@app.get("/webhook/techsheets/sync", status_code=202)
+def techsheets_sync(
+    background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+) -> dict[str, str]:
+    """A→P tech sheet sync (upload tech sheet PDFs to Priority)."""
+    _verify_query_key(key)
+    return _start_workflow("techsheets", background_tasks, priority_url_override=_resolve_priority_env(env))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

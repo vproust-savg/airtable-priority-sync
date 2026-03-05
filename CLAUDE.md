@@ -26,7 +26,7 @@
 
 ---
 
-## Scope: 10 Sync Workflows
+## Scope: 11 Sync Workflows
 
 | # | Workflow | Priority Entity | CLI Name | Airtable Table | Direction |
 |---|---------|----------------|----------|----------------|-----------|
@@ -40,8 +40,9 @@
 | 8 | Fin. Params Customers | FNCCUST | `fnccust` | Customers All | Bidirectional |
 | 9 | Customer Price Lists | PRICELIST | `customer-prices` | Customer Price List | Bidirectional |
 | 10 | Product Images | LOGPART | `images` | Products | A→P only |
+| 11 | Tech Sheets | LOGPART | `techsheets` | Products | A→P only |
 
-Workflows 1–9 support bidirectional sync (A→P and P→A). Workflow 10 (images) is A→P only — downloads images from Airtable, compresses with Pillow (<150KB JPG), and uploads to Priority's `EXTFILENAME` field.
+Workflows 1–9 support bidirectional sync (A→P and P→A). Workflow 10 (images) is A→P only — downloads images from Airtable, compresses with Pillow (<150KB JPG), and uploads to Priority's `EXTFILENAME` field. Workflow 11 (tech sheets) is A→P only — uploads PDFs from Airtable to Priority's `PARTEXTFILE_SUBFORM` sub-form.
 
 ---
 
@@ -73,16 +74,16 @@ All credentials are in `.env`. Never hardcode them in source files.
 - **Auto-deploys:** Pushes to `main` on GitHub trigger automatic redeploy
 - **Env vars:** All credentials set in Railway Variables tab (never in code)
 
-**Webhook endpoint pattern** (21 workflow-specific endpoints + 5 legacy):
+**Webhook endpoint pattern** (22 workflow-specific endpoints + 5 legacy):
 ```
 GET /webhook/{workflow}/sync?key={KEY}                    # A→P full sync
 GET /webhook/{workflow}/sync-from-priority?key={KEY}      # P→A full sync
 GET /webhook/{workflow}/sync-status?key={KEY}             # A→P status-only (products only)
 GET /webhook/{workflow}/sync-from-priority-status?key={KEY} # P→A status-only (products only)
 ```
-Where `{workflow}` = `products`, `fncpart`, `prdpart`, `vendors`, `fncsup`, `vendor-prices`, `customers`, `fnccust`, `customer-prices`, `images`.
+Where `{workflow}` = `products`, `fncpart`, `prdpart`, `vendors`, `fncsup`, `vendor-prices`, `customers`, `fnccust`, `customer-prices`, `images`, `techsheets`.
 
-**Note:** `images` workflow only has the `/sync` endpoint (A→P only, no reverse direction or status mode).
+**Note:** `images` and `techsheets` workflows only have the `/sync` endpoint (A→P only, no reverse direction or status mode).
 
 Add `&env=uat` or `&env=sandbox` for environment switching. Production blocked from webhooks.
 
@@ -428,7 +429,7 @@ sync/
 │   ├── customers/         # CUSTOMERS — engine, config, field_mapping, subform_mapping
 │   ├── fnccust/           # FNCCUST — engine, config, field_mapping
 │   └── customer_prices/   # PRICELIST (customer) — engine, config, field_mapping
-├── server.py              # FastAPI: /health, 20 webhook endpoints, env switching
+├── server.py              # FastAPI: /health, 22 webhook endpoints, env switching
 └── run_sync.py            # CLI: --workflow, --direction, --priority-env, --test-base, --dry-run
 ```
 
