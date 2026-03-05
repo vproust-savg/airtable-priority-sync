@@ -28,6 +28,19 @@ CONTACTS_AIRTABLE_FIELDS: list[str] = [
     "Buyer Output (from Vendor_ID)",
 ]
 
+CONTACTS_FIELD_IDS: dict[str, str] = {
+    "Priority Vendor ID (from Vendor_ID)": "fldaBCpI4fDYcwXS0",
+    "Clean Full Name": "fldN2PlqhOeMtvuQX",
+    "Clean_First Name": "fldaPwANUcUPSa55z",
+    "Clean_Last Name": "fldLaYAHIPkB13MC5",
+    "Contact Status": "fldSG8EWwbg8KANHh",
+    "Clean Phone Number": "fld10t6t3ARBlyPdC",
+    "Clean Cell Phone": "fldn8nED0EuU6tSwk",
+    "Clean Email": "fldTugnqAPRwm9yad",
+    "Clean_Job Title": "fldsZUDIq5RmoMknh",
+    "Buyer Output (from Vendor_ID)": "fld5Djf8gfanTI0Fn",
+}
+
 # Airtable field → Priority sub-form field
 CONTACTS_FIELD_MAP: dict[str, str] = {
     "Clean Full Name": "NAME",
@@ -57,6 +70,14 @@ PRODUCTS_AIRTABLE_FIELDS: list[str] = [
     "Min for Order (from Savory SKU)",
 ]
 
+PRODUCTS_FIELD_IDS: dict[str, str] = {
+    "V-Vendor ID (from Preferred Vendor) (from Savory SKU)": "fldT1ZI0gMdd7VkfW",
+    "SKU Trim (EDI) (from Savory SKU)": "fldYpa9CkG9i2lS9m",
+    "Vendor Part Number": "fldPpJklgX03JU7wL",
+    "Purchase Lead Time (from Savory SKU)": "fldQeeo78pzTBWhjt",
+    "Min for Order (from Savory SKU)": "fldMzQ1rWqoQhJJ1N",
+}
+
 PRODUCTS_FIELD_MAP: dict[str, str] = {
     "SKU Trim (EDI) (from Savory SKU)": "PARTNAME",
     "Vendor Part Number": "SUPPARTNAME",
@@ -83,6 +104,18 @@ SITES_AIRTABLE_FIELDS: list[str] = [
     "Warehouse Address Zip Code",
     "Warehouse Address Country",
 ]
+
+SITES_FIELD_IDS: dict[str, str] = {
+    "Priority Vendor ID (from Vendor)": "fldYS31GIiXUnjfVS",
+    "W": "fld8G0ygtwYt4dNBd",
+    "Clean Site Name": "fldyxptlFEVo2I8lm",
+    "Clean Warehouse Address Line 1": "fldyAhq8z1hxPhcU9",
+    "Clean Warehouse Address Line 2": "fldWFbdsRfzHYBjVb",
+    "Clean Warehouse Address City": "flduTJTvfUezvbUjQ",
+    "Warehouse Address State": "fldE8jueZrtGGE3P8",
+    "Warehouse Address Zip Code": "fldDM3L797zDvfNqI",
+    "Warehouse Address Country": "fldA79B7xXcRYpipR",
+}
 
 SITES_FIELD_MAP: dict[str, str] = {
     "W": "CODE",

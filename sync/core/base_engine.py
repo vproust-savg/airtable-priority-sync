@@ -57,6 +57,39 @@ TRANSFORMS: dict[str, Callable[[Any], Any]] = {
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# Field ID map builder
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def build_field_id_map(
+    *field_maps: list[FieldMapping],
+    extra: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Build a field name → field ID mapping from FieldMapping lists + extras.
+
+    Used to construct the ``field_id_map`` parameter for AirtableClient so that
+    API calls reference stable field IDs instead of mutable field names.
+
+    Args:
+        *field_maps: One or more lists of FieldMapping objects.  Each mapping
+            with a non-None ``airtable_field_id`` is included.
+        extra: Additional name→ID pairs (e.g. config key fields, timestamp
+            field IDs, subform field ID dicts).
+
+    Returns:
+        dict mapping Airtable field names to their stable field IDs.
+    """
+    result: dict[str, str] = {}
+    for fm in field_maps:
+        for m in fm:
+            if m.airtable_field_id:
+                result[m.airtable_field] = m.airtable_field_id
+    if extra:
+        result.update(extra)
+    return result
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Generic field mapping functions
 # ═════════════════════════════════════════════════════════════════════════════
 # These work with any list of FieldMapping objects and any entity type.

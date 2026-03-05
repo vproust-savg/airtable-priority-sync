@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sync.core.airtable_client import AirtableClient
-from sync.core.base_engine import BaseSyncEngine
+from sync.core.base_engine import BaseSyncEngine, build_field_id_map
 from sync.core.config import (
     AIRTABLE_API_BASE,
     AIRTABLE_MAX_RETRIES,
@@ -35,7 +35,9 @@ from sync.core.utils import clean
 from sync.core.base_engine import map_airtable_to_priority
 from sync.workflows.products.config import (
     AIRTABLE_FIELD_SKU,
+    AIRTABLE_FIELD_SKU_ID,
     AIRTABLE_FIELD_SKU_WRITABLE,
+    AIRTABLE_FIELD_SKU_WRITABLE_ID,
     AIRTABLE_PRODUCTS_TABLE_NAME,
     AIRTABLE_SHELF_LIVES_TABLE_ID,
     AIRTABLE_SHELF_LIVES_VIEW,
@@ -45,6 +47,7 @@ from sync.workflows.products.config import (
     PRIORITY_KEY_FIELD,
     PRIORITY_PRDPART_ENTITY,
     TIMESTAMP_FIELDS,
+    TIMESTAMP_FIELD_IDS,
 )
 from sync.workflows.products.field_mapping import (
     AIRTABLE_FIELDS_TO_FETCH,
@@ -63,8 +66,12 @@ from sync.workflows.products.field_mapping import (
     STATUS_FIELDS_TO_FETCH,
 )
 from sync.workflows.products.subform_mapping import (
+    ALLERGEN_FIELD_MAP,
     ALLERGEN_SUBFORM_NAME,
+    BIN_FIELD_MAP,
     BIN_SUBFORM_NAME,
+    PRICE_LIST_FIELD_IDS,
+    PRICE_LIST_SHARED_FIELD_IDS,
     PRICE_LIST_SUBFORM_NAME,
     SHELF_LIFE_AIRTABLE_FIELDS,
     SHELF_LIFE_SUBFORM_NAME,
@@ -114,12 +121,27 @@ class ProductSyncEngine(BaseSyncEngine):
         token_override: str | None,
     ) -> AirtableClient:
         """Create an AirtableClient configured for the Products table."""
+        field_id_map = build_field_id_map(
+            PRODUCT_FIELD_MAP, STATUS_FIELD_MAP,
+            P2A_FIELD_MAP, P2A_STATUS_FIELD_MAP,
+            FNCPART_A2P_FIELD_MAP, FNCPART_P2A_FIELD_MAP,
+            PRDPART_A2P_FIELD_MAP, PRDPART_P2A_FIELD_MAP,
+            ALLERGEN_FIELD_MAP, BIN_FIELD_MAP,
+            extra={
+                AIRTABLE_FIELD_SKU: AIRTABLE_FIELD_SKU_ID,
+                AIRTABLE_FIELD_SKU_WRITABLE: AIRTABLE_FIELD_SKU_WRITABLE_ID,
+                **{v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()},
+                **PRICE_LIST_FIELD_IDS,
+                **PRICE_LIST_SHARED_FIELD_IDS,
+            },
+        )
         return AirtableClient(
             table_name=AIRTABLE_PRODUCTS_TABLE_NAME,
             key_field=AIRTABLE_FIELD_SKU,
             key_field_writable=AIRTABLE_FIELD_SKU_WRITABLE,
             sync_view=AIRTABLE_SYNC_VIEW,
             timestamp_fields=TIMESTAMP_FIELDS,
+            field_id_map=field_id_map,
             base_id_override=base_id_override,
             token_override=token_override,
         )

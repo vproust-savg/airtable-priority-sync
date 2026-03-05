@@ -44,6 +44,7 @@ class AirtableClient:
         timestamp_fields: dict[str, str] | None = None,
         base_id_override: str | None = None,
         token_override: str | None = None,
+        field_id_map: dict[str, str] | None = None,
     ) -> None:
         """
         Args:
@@ -58,6 +59,10 @@ class AirtableClient:
                 - "priority_udate": e.g., "Priority UDATE"
             base_id_override: Optional base ID for testing.
             token_override: Optional token for testing.
+            field_id_map: Optional mapping of field name → field ID.
+                         When provided, API calls use stable field IDs instead
+                         of field names. Response parsing is unaffected (Airtable
+                         returns field names by default).
         """
         self.table_name = table_name
         self.key_field = key_field
@@ -68,6 +73,7 @@ class AirtableClient:
             "last_synced_from": "Last Synced from Priority",
             "priority_udate": "Priority UDATE",
         }
+        self._field_id_map = field_id_map
 
         self._base_id = base_id_override or AIRTABLE_BASE_ID
         token = token_override or AIRTABLE_TOKEN
@@ -78,6 +84,20 @@ class AirtableClient:
         })
         self.session.timeout = AIRTABLE_REQUEST_TIMEOUT
         self._base_url = f"{AIRTABLE_API_BASE}/{self._base_id}/{quote(table_name)}"
+
+    # ── Field ID helpers ─────────────────────────────────────────────────
+
+    def _to_id(self, field_name: str) -> str:
+        """Translate a field name to its stable field ID if available."""
+        if self._field_id_map:
+            return self._field_id_map.get(field_name, field_name)
+        return field_name
+
+    def _fields_to_ids(self, fields: dict[str, Any]) -> dict[str, Any]:
+        """Translate all field-name keys in a dict to field IDs."""
+        if not self._field_id_map:
+            return fields
+        return {self._to_id(k): v for k, v in fields.items()}
 
     # ── Read ─────────────────────────────────────────────────────────────
 
@@ -97,7 +117,7 @@ class AirtableClient:
         records: list[dict[str, Any]] = []
         offset: str | None = None
 
-        field_params = [("fields[]", f) for f in fields_to_fetch] if fields_to_fetch else []
+        field_params = [("fields[]", self._to_id(f)) for f in fields_to_fetch] if fields_to_fetch else []
 
         for attempt in range(AIRTABLE_MAX_RETRIES):
             try:
@@ -180,7 +200,7 @@ class AirtableClient:
         records: list[dict[str, Any]] = []
         offset: str | None = None
 
-        field_params = [("fields[]", f) for f in fields] if fields else []
+        field_params = [("fields[]", self._to_id(f)) for f in fields] if fields else []
 
         for attempt in range(AIRTABLE_MAX_RETRIES):
             try:
@@ -260,8 +280,9 @@ class AirtableClient:
 
         Returns list of raw Airtable record dicts (0 or 1 items).
         """
-        field_params = [("fields[]", f) for f in fields_to_fetch] if fields_to_fetch else []
-        formula = f'{{{self.key_field}}}="{key_value}"'
+        field_params = [("fields[]", self._to_id(f)) for f in fields_to_fetch] if fields_to_fetch else []
+        key_ref = self._to_id(self.key_field)
+        formula = f'{{{key_ref}}}="{key_value}"'
         params = [("filterByFormula", formula)] + field_params
 
         for attempt in range(AIRTABLE_MAX_RETRIES):
@@ -323,11 +344,11 @@ class AirtableClient:
             for update in batch:
                 fields: dict[str, Any] = {}
                 if update.get("synced_at"):
-                    fields[self.ts["last_synced_to"]] = update["synced_at"]
+                    fields[self._to_id(self.ts["last_synced_to"])] = update["synced_at"]
                 if update.get("priority_udate"):
-                    fields[self.ts["priority_udate"]] = update["priority_udate"]
+                    fields[self._to_id(self.ts["priority_udate"])] = update["priority_udate"]
                 if update.get("sync_comment") and self.ts.get("sync_comments"):
-                    fields[self.ts["sync_comments"]] = update["sync_comment"]
+                    fields[self._to_id(self.ts["sync_comments"])] = update["sync_comment"]
 
                 records_payload.append({
                     "id": update["record_id"],
@@ -405,7 +426,7 @@ class AirtableClient:
         fields = list(dict.fromkeys(
             [self.key_field] + (fields_to_fetch or [])
         ))
-        field_params = [("fields[]", f) for f in fields]
+        field_params = [("fields[]", self._to_id(f)) for f in fields]
 
         records: list[dict[str, Any]] = []
         offset: str | None = None
@@ -502,8 +523,13 @@ class AirtableClient:
 
         for i in range(0, len(records), AIRTABLE_BATCH_SIZE):
             batch = records[i : i + AIRTABLE_BATCH_SIZE]
+            # Translate field name keys to IDs if available
+            id_batch = [
+                {"fields": self._fields_to_ids(r["fields"])}
+                for r in batch
+            ]
             # typecast=True lets Airtable auto-create singleSelect options
-            payload = {"records": batch, "typecast": True}
+            payload = {"records": id_batch, "typecast": True}
 
             for attempt in range(AIRTABLE_MAX_RETRIES):
                 try:
@@ -582,8 +608,13 @@ class AirtableClient:
 
         for i in range(0, len(updates), AIRTABLE_BATCH_SIZE):
             batch = updates[i : i + AIRTABLE_BATCH_SIZE]
+            # Translate field name keys to IDs if available
+            id_batch = [
+                {"id": u["id"], "fields": self._fields_to_ids(u["fields"])}
+                for u in batch
+            ]
             # typecast=True lets Airtable auto-create singleSelect options
-            payload = {"records": batch, "typecast": True}
+            payload = {"records": id_batch, "typecast": True}
 
             for attempt in range(AIRTABLE_MAX_RETRIES):
                 try:
@@ -672,12 +703,12 @@ class AirtableClient:
             records_payload = []
             for update in batch:
                 fields: dict[str, Any] = {
-                    self.ts["last_synced_from"]: update["synced_at"],
+                    self._to_id(self.ts["last_synced_from"]): update["synced_at"],
                 }
                 if update.get("priority_udate"):
-                    fields[self.ts["priority_udate"]] = update["priority_udate"]
+                    fields[self._to_id(self.ts["priority_udate"])] = update["priority_udate"]
                 if update.get("sync_comment") and self.ts.get("sync_comments"):
-                    fields[self.ts["sync_comments"]] = update["sync_comment"]
+                    fields[self._to_id(self.ts["sync_comments"])] = update["sync_comment"]
 
                 records_payload.append({
                     "id": update["record_id"],

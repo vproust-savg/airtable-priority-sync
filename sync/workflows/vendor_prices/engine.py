@@ -20,13 +20,14 @@ import logging
 from typing import Any
 
 from sync.core.airtable_client import AirtableClient
-from sync.core.base_engine import BaseSyncEngine
+from sync.core.base_engine import BaseSyncEngine, build_field_id_map
 from sync.core.models import FieldMapping, SubformResult, SyncMode, SyncRecord
 from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
 from sync.core.utils import clean, format_price
 from sync.workflows.vendor_prices.config import (
     AIRTABLE_KEY_FIELD,
+    AIRTABLE_KEY_FIELD_ID,
     AIRTABLE_KEY_FIELD_WRITABLE,
     AIRTABLE_SYNC_VIEW,
     AIRTABLE_TABLE_NAME,
@@ -34,10 +35,13 @@ from sync.workflows.vendor_prices.config import (
     PRIORITY_ITEMS_SUBFORM,
     PRIORITY_KEY_FIELD,
     TIMESTAMP_FIELDS,
+    TIMESTAMP_FIELD_IDS,
 )
 from sync.workflows.vendor_prices.field_mapping import (
     A2P_FIELD_MAP,
+    AIRTABLE_FIELD_IDS,
     AIRTABLE_FIELDS_TO_FETCH,
+    ITEMS_FIELD_IDS,
     ITEMS_FIELD_MAP,
     P2A_AIRTABLE_FIELDS_TO_FETCH,
     P2A_FIELD_MAP,
@@ -62,12 +66,22 @@ class VendorPriceSyncEngine(BaseSyncEngine):
         base_id_override: str | None,
         token_override: str | None,
     ) -> AirtableClient:
+        field_id_map = build_field_id_map(
+            A2P_FIELD_MAP, P2A_FIELD_MAP,
+            extra={
+                AIRTABLE_KEY_FIELD: AIRTABLE_KEY_FIELD_ID,
+                **{v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()},
+                **AIRTABLE_FIELD_IDS,
+                **ITEMS_FIELD_IDS,
+            },
+        )
         return AirtableClient(
             table_name=AIRTABLE_TABLE_NAME,
             key_field=AIRTABLE_KEY_FIELD,
             key_field_writable=AIRTABLE_KEY_FIELD_WRITABLE,
             sync_view=AIRTABLE_SYNC_VIEW,
             timestamp_fields=TIMESTAMP_FIELDS,
+            field_id_map=field_id_map,
             base_id_override=base_id_override,
             token_override=token_override,
         )

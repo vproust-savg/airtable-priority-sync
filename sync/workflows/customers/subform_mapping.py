@@ -33,6 +33,21 @@ CONTACTS_AIRTABLE_FIELDS: list[str] = [
     "Clean Full Name",
 ]
 
+CONTACTS_FIELD_IDS: dict[str, str] = {
+    "Priority Cust. ID (from Customers)": "fldCzWux3AdKYFYL9",
+    "Clean First Name": "fldP8R2YkLs59r0wc",
+    "Clean Last Name": "fldUXuN2tPvLznoCn",
+    "Clean Phone Number": "fldAzbY4BolcbPQJu",
+    "Clean Cell Phone": "fldszV8PW8VtGf8xR",
+    "Email_ID": "fldxHFcsanzzWf8fn",
+    "Consent to Receive Emails Output": "fldM1eDjhTQbGqRp5",
+    "Clean Position": "fldti46pIk4p7cIXG",
+    "Status": "fld9kBeWqtHTczqLj",
+    "Linkedin": "fldamkilBbLhalu0X",
+    "Sign Up Priority": "fldy25icq78YSMcUk",
+    "Clean Full Name": "fldJgSoTTx2eRcgEg",
+}
+
 # Airtable field → Priority sub-form field
 CONTACTS_FIELD_MAP: dict[str, str] = {
     "Clean First Name": "FIRSTNAME",
@@ -76,6 +91,26 @@ SITES_AIRTABLE_FIELDS: list[str] = [
     "Carrier Account Number (5) (from Customers)",
 ]
 
+SITES_FIELD_IDS: dict[str, str] = {
+    "Priority Cust. ID": "fld7YjtzFv6eiJlwF",
+    "Site Id": "fld9bYfmERdt0T3Az",
+    "Ship To Name Output": "fldjOXa5Kg7lqGS46",
+    "Main Output": "fldM2QoftKTXiTlVM",
+    "Address Line 1 Output": "fldmg9e952h8XyPFE",
+    "Address Line 2 Output": "fldg3vOpR8GKGb1ca",
+    "Address Remarks Output": "fldYNN7GhBxP7IIZV",
+    "City Output": "fldc0TVQC5G7kd9oE",
+    "State": "fldsLpLJ0H4mR4gmo",
+    "Zip": "fld25oyjjBA2C9i6x",
+    "EDI_USA": "fldOWRPJ249yT1bjn",
+    "Primary receiver (from Customers)": "fldQq0M0icXcpYU0L",
+    "Phone Output": "fldSUThO49r0D8hWf",
+    "Zone Code": "fld47Y12aa9P4VGul",
+    "Dist. Route Code": "fldWy8cTBTkGnKp2L",
+    "EDI_Carrier Code": "fldsKJxxcpSnBgNnb",
+    "Carrier Account Number (5) (from Customers)": "fldl2Tg6PyAyM4MYm",
+}
+
 SITES_FIELD_MAP: dict[str, str] = {
     "Site Id": "CODE",
     "Ship To Name Output": "CODEDES",
@@ -111,6 +146,14 @@ SPECIAL_PRICES_AIRTABLE_FIELDS: list[str] = [
     "Special Price",
 ]
 
+SPECIAL_PRICES_FIELD_IDS: dict[str, str] = {
+    "Cust. IDs": "fldrN10isC0LHoCdt",
+    "SKU": "fld50GU0eYjvT2CC2",
+    "Formatted Start Date": "fldnogjeffyFmGV5y",
+    "Expiration Date": "fldzbrfYiaWW8eaV9",
+    "Special Price": "fldOg7NcP6Vckpxak",
+}
+
 SPECIAL_PRICES_FIELD_MAP: dict[str, str] = {
     "SKU": "PARTNAME",
     "Formatted Start Date": "FROMDATE",
@@ -130,6 +173,11 @@ PRICE_LIST_AIRTABLE_FIELDS: list[str] = [
     "Priority Cust. ID",
     "Price List Code",
 ]
+
+PRICE_LIST_FIELD_IDS: dict[str, str] = {
+    "Priority Cust. ID": "fldsnRoMbOuU26Ezc",
+    "Price List Code": "fldxB83teEXqu6aMq",
+}
 
 PRICE_LIST_FIELD_MAP: dict[str, str] = {
     "Price List Code": "PLNAME",
@@ -151,6 +199,13 @@ DELIVERY_DAYS_AIRTABLE_FIELDS: list[str] = [
     "Deliver After",
     "Deliver Before",
 ]
+
+DELIVERY_DAYS_FIELD_IDS: dict[str, str] = {
+    "Priority Cust. ID": "fldsnRoMbOuU26Ezc",
+    "Days of Business": "fldFJJ3w9sPLZlLZi",
+    "Deliver After": "fldlUAvkUo7v9E4PG",
+    "Deliver Before": "fldaHJIvSdQMcva5S",
+}
 
 # Not a standard field map — handled with custom logic in the engine
 # because row explosion + transforms are needed

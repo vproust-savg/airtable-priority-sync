@@ -32,3 +32,16 @@ TIMESTAMP_FIELDS = {
     "priority_udate": AIRTABLE_FIELD_PRIORITY_UDATE,
     "sync_comments": "Sync Comments",
 }
+
+# ── Field IDs ──────────────────────────────────────────────────────────────────
+AIRTABLE_KEY_FIELD_ID = "fld98fqyqEboRCrU4"  # Price List Code
+AIRTABLE_FIELD_LAST_SYNCED_ID = "fldvrN7JezJRBpBji"  # Last Synced to Priority
+AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY_ID = "fldYVbGkksNW334cv"  # Last Synced from Priority
+AIRTABLE_FIELD_PRIORITY_UDATE_ID = "fldR2LIZoT17zzHbi"  # Priority UDATE
+
+TIMESTAMP_FIELD_IDS = {
+    "last_synced_to": AIRTABLE_FIELD_LAST_SYNCED_ID,
+    "last_synced_from": AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY_ID,
+    "priority_udate": AIRTABLE_FIELD_PRIORITY_UDATE_ID,
+    "sync_comments": "fld1ruqLsgy3QAnyB",  # Sync Comments
+}

@@ -30,7 +30,9 @@ from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
 from sync.workflows.images.config import (
     AIRTABLE_IMAGE_FIELD,
+    AIRTABLE_IMAGE_FIELD_ID,
     AIRTABLE_KEY_FIELD,
+    AIRTABLE_KEY_FIELD_ID,
     AIRTABLE_SYNC_VIEW,
     AIRTABLE_TABLE_NAME,
     MAX_IMAGE_SIZE_KB,
@@ -38,6 +40,7 @@ from sync.workflows.images.config import (
     PRIORITY_IMAGE_FIELD,
     PRIORITY_KEY_FIELD,
     TIMESTAMP_FIELDS,
+    TIMESTAMP_FIELD_IDS,
 )
 from sync.workflows.images.image_processor import process_image
 
@@ -74,11 +77,19 @@ class ImageSyncEngine:
         self.workflow_name = workflow_name
         self.stats = SyncStats()
 
+        # Build field ID map for the Products table (images use same table)
+        field_id_map: dict[str, str] = {
+            AIRTABLE_KEY_FIELD: AIRTABLE_KEY_FIELD_ID,
+            AIRTABLE_IMAGE_FIELD: AIRTABLE_IMAGE_FIELD_ID,
+            **{v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()},
+        }
+
         self.airtable = AirtableClient(
             table_name=AIRTABLE_TABLE_NAME,
             key_field=AIRTABLE_KEY_FIELD,
             sync_view=AIRTABLE_SYNC_VIEW,
             timestamp_fields=TIMESTAMP_FIELDS,
+            field_id_map=field_id_map,
             base_id_override=base_id_override,
             token_override=token_override,
         )

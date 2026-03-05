@@ -23,6 +23,7 @@ from sync.core.models import FieldMapping
 A2P_FIELD_MAP: list[FieldMapping] = [
     FieldMapping(
         airtable_field="Price List Code",
+        airtable_field_id="fld98fqyqEboRCrU4",
         priority_field="PLNAME",
         transform="clean",
         required=True,
@@ -35,6 +36,12 @@ ITEMS_FIELD_MAP: dict[str, str] = {
     "SKU Trim (EDI) (from Products)": "PARTNAME",
     "Unit Price": "PRICE",
     "Quantity": "QUANT",
+}
+
+ITEMS_FIELD_IDS: dict[str, str] = {
+    "SKU Trim (EDI) (from Products)": "fldCtaPuLVJNtPHMv",
+    "Unit Price": "fldKTUxHTSmrGfBHF",
+    "Quantity": "fldHMtsbjsCqVrfuX",
 }
 
 # Fields to fetch from Airtable
@@ -51,6 +58,20 @@ AIRTABLE_FIELDS_TO_FETCH: list[str] = [
     "Vendor Name (from Vendor)",
     "List Currency",
 ]
+
+AIRTABLE_FIELD_IDS: dict[str, str] = {
+    "Price List Code": "fld98fqyqEboRCrU4",
+    "V-Vendor ID (from Vendor)": "fld5CtPnbZ4zXnOu5",
+    "Vendor Currency (from Vendor)": "fldlsjMK5N1r4mxKu",
+    "SKU Trim (EDI) (from Products)": "fldCtaPuLVJNtPHMv",
+    "Quantity": "fldHMtsbjsCqVrfuX",
+    "Unit Price": "fldKTUxHTSmrGfBHF",
+    "Price List Date": "fldhKmmR0rpbGpFNh",
+    "Price List Description": "fldtKQT6Eb4eNy3Dt",
+    "Vendor SKU Trim": "fldWSE6ji1kvawbCZ",
+    "Vendor Name (from Vendor)": "fldrPQSakqLRLM3Ve",
+    "List Currency": "fldtbzcxVRFnQwVyp",
+}
 
 # ═════════════════════════════════════════════════════════════════════════════
 # P→A field mapping — Vendor Price Lists

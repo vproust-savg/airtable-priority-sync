@@ -32,6 +32,7 @@ A2P_FIELD_MAP: list[FieldMapping] = [
     # ── Primary key ──────────────────────────────────────────────────────
     FieldMapping(
         airtable_field="Priority Vendor ID",
+        airtable_field_id="fldLkVY6ul00KnMJO",
         priority_field="SUPNAME",
         transform="clean",
         required=True,
@@ -40,54 +41,63 @@ A2P_FIELD_MAP: list[FieldMapping] = [
     # ── Financial parameters ─────────────────────────────────────────────
     FieldMapping(
         airtable_field="Currency",
+        airtable_field_id="fldsFN1BhXxYXusSh",
         priority_field="CODE",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Priority Vendor Account No",
+        airtable_field_id="fldWCR3iNSo8gq4GK",
         priority_field="ACCNAME",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Buyer Output",
+        airtable_field_id="fldIKLZXHbvsnfhAh",
         priority_field="OWNERLOGIN",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Status",
+        airtable_field_id="fldBcdMhERTIjDksV",
         priority_field="STATDES",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="FDA Registration #",
+        airtable_field_id="fldExdRs6V7EKW09y",
         priority_field="COMPNUM",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Federal Tax ID (16)",
+        airtable_field_id="fldpT73EmgEmdDPMN",
         priority_field="VATNUM",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="VAT Code",
+        airtable_field_id="fldcfZ6ahghdgieNT",
         priority_field="TAXCODE",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Payment Terms Code",
+        airtable_field_id="fldxMIBEb84iKyoGy",
         priority_field="PAYCODE",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Maximum Tax Code",
+        airtable_field_id="fldUEbr759dY5mzyg",
         priority_field="WTAXCODE",
         transform="clean",
         field_type="str",
@@ -106,24 +116,28 @@ A2P_FIELD_MAP: list[FieldMapping] = [
 P2A_FIELD_MAP: list[FieldMapping] = [
     FieldMapping(
         airtable_field="Currency",
+        airtable_field_id="fldsFN1BhXxYXusSh",
         priority_field="CODE",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Status",
+        airtable_field_id="fldBcdMhERTIjDksV",
         priority_field="STATDES",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="FDA Registration #",
+        airtable_field_id="fldExdRs6V7EKW09y",
         priority_field="COMPNUM",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Federal Tax ID (16)",
+        airtable_field_id="fldpT73EmgEmdDPMN",
         priority_field="VATNUM",
         transform="clean",
         field_type="str",
@@ -140,24 +154,28 @@ P2A_FIELD_MAP: list[FieldMapping] = [
 BANK_A2P_FIELD_MAP: list[FieldMapping] = [
     FieldMapping(
         airtable_field="Bank Account",
+        airtable_field_id="fldLNWU2m9KWgx309",
         priority_field="PAYACCOUNT",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Bank Code",
+        airtable_field_id="fldHPr2Sh7pRxpc85",
         priority_field="BANKCODE",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Routing Number",
+        airtable_field_id="fldfmJD3BQe4VrEdZ",
         priority_field="BRANCH",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="IBAN",
+        airtable_field_id="fldBkaMQOdH1QfrU1",
         priority_field="IBAN",
         transform="clean",
         field_type="str",

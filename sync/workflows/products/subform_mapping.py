@@ -35,29 +35,29 @@ _TRANSFORMS = {
 ALLERGEN_SUBFORM_NAME = "SAVR_ALLERGENS_SUBFORM"
 
 ALLERGEN_FIELD_MAP: list[FieldMapping] = [
-    FieldMapping(airtable_field="Allergen_Allergen Present", priority_field="HASALLERGEN", transform="clean"),
-    FieldMapping(airtable_field="Allergen_Eggs", priority_field="EGGS", transform="clean"),
-    FieldMapping(airtable_field="Allergen_Dairy", priority_field="DAIRY", transform="clean"),
-    FieldMapping(airtable_field="Allergen_Fish", priority_field="FISH", transform="clean"),
-    FieldMapping(airtable_field="Allergen_Peanut", priority_field="PEANUT", transform="clean"),
-    FieldMapping(airtable_field="Allergen_Sesame", priority_field="SESAME", transform="clean"),
-    FieldMapping(airtable_field="Allergen_Shellfish", priority_field="SHELLFISH", transform="clean"),
-    FieldMapping(airtable_field="Allergen_Soybean", priority_field="SOYBEAN", transform="clean"),
-    FieldMapping(airtable_field="Allergen_Tree Nuts", priority_field="NUTS", transform="clean"),
-    FieldMapping(airtable_field="Allergen_Wheat", priority_field="WHEAT", transform="clean"),
-    FieldMapping(airtable_field="Feature_Feature Present", priority_field="HASFEATURE", transform="clean"),
-    FieldMapping(airtable_field="Feature_Gluten Free", priority_field="GLUTENFREE", transform="clean"),
-    FieldMapping(airtable_field="Feature_Organic", priority_field="ORGANIC", transform="clean"),
-    FieldMapping(airtable_field="Feature_Kosher", priority_field="KOSHER", transform="clean"),
-    FieldMapping(airtable_field="Feature_Vegan", priority_field="VEGAN", transform="clean"),
-    FieldMapping(airtable_field="Feature_Halal", priority_field="HALAL", transform="clean"),
-    FieldMapping(airtable_field="Feature_Non GMO", priority_field="NONGMO", transform="clean"),
-    FieldMapping(airtable_field="Feature_Identity Protected", priority_field="IDPROTECT", transform="clean"),
-    FieldMapping(airtable_field="GFSI Certified", priority_field="GFSI", transform="clean"),
-    FieldMapping(airtable_field="Glass Packaging", priority_field="PACKAGING", transform="clean"),
-    FieldMapping(airtable_field="Prop. 65 Warning", priority_field="PROP65", transform="clean"),
-    FieldMapping(airtable_field="Calif. Ass. Bill 418", priority_field="CABILL418", transform="clean"),
-    FieldMapping(airtable_field="Traceability Type Output", priority_field="TRACEABILITY", transform="clean"),
+    FieldMapping(airtable_field="Allergen_Allergen Present", airtable_field_id="fldme5BPKgpTRCisB", priority_field="HASALLERGEN", transform="clean"),
+    FieldMapping(airtable_field="Allergen_Eggs", airtable_field_id="fldOCGoSAYkf3HQca", priority_field="EGGS", transform="clean"),
+    FieldMapping(airtable_field="Allergen_Dairy", airtable_field_id="fldVP6zqqj7IFTavX", priority_field="DAIRY", transform="clean"),
+    FieldMapping(airtable_field="Allergen_Fish", airtable_field_id="fldsZno9KAk98vv5F", priority_field="FISH", transform="clean"),
+    FieldMapping(airtable_field="Allergen_Peanut", airtable_field_id="fldgGUfEJjB7x5w0O", priority_field="PEANUT", transform="clean"),
+    FieldMapping(airtable_field="Allergen_Sesame", airtable_field_id="fldWlixvEtuu5E9HO", priority_field="SESAME", transform="clean"),
+    FieldMapping(airtable_field="Allergen_Shellfish", airtable_field_id="fldFeMlvvDzR4R880", priority_field="SHELLFISH", transform="clean"),
+    FieldMapping(airtable_field="Allergen_Soybean", airtable_field_id="fldBv39ryUOCtaJFs", priority_field="SOYBEAN", transform="clean"),
+    FieldMapping(airtable_field="Allergen_Tree Nuts", airtable_field_id="fldkGD69JIqtTGOWD", priority_field="NUTS", transform="clean"),
+    FieldMapping(airtable_field="Allergen_Wheat", airtable_field_id="fldOTslxRXLdDMe4w", priority_field="WHEAT", transform="clean"),
+    FieldMapping(airtable_field="Feature_Feature Present", airtable_field_id="fldWYusMhacIoxyGA", priority_field="HASFEATURE", transform="clean"),
+    FieldMapping(airtable_field="Feature_Gluten Free", airtable_field_id="fldwhzExKrWiqhWPd", priority_field="GLUTENFREE", transform="clean"),
+    FieldMapping(airtable_field="Feature_Organic", airtable_field_id="fldekjulU3D3eA1Vp", priority_field="ORGANIC", transform="clean"),
+    FieldMapping(airtable_field="Feature_Kosher", airtable_field_id="fldD7xyvmBU8NDaYH", priority_field="KOSHER", transform="clean"),
+    FieldMapping(airtable_field="Feature_Vegan", airtable_field_id="fld6VtJocYdD4Z0AK", priority_field="VEGAN", transform="clean"),
+    FieldMapping(airtable_field="Feature_Halal", airtable_field_id="fldF4XPKMHq33hRc5", priority_field="HALAL", transform="clean"),
+    FieldMapping(airtable_field="Feature_Non GMO", airtable_field_id="fldQVpyXmShI2tLiK", priority_field="NONGMO", transform="clean"),
+    FieldMapping(airtable_field="Feature_Identity Protected", airtable_field_id="fldFOCHgsuVFkf0I4", priority_field="IDPROTECT", transform="clean"),
+    FieldMapping(airtable_field="GFSI Certified", airtable_field_id="fldVvu86eNEVZXofS", priority_field="GFSI", transform="clean"),
+    FieldMapping(airtable_field="Glass Packaging", airtable_field_id="fld9LpRFM1iFuxEBH", priority_field="PACKAGING", transform="clean"),
+    FieldMapping(airtable_field="Prop. 65 Warning", airtable_field_id="fldQHNowsLlMC8NMv", priority_field="PROP65", transform="clean"),
+    FieldMapping(airtable_field="Calif. Ass. Bill 418", airtable_field_id="fldXwUO50begWvnan", priority_field="CABILL418", transform="clean"),
+    FieldMapping(airtable_field="Traceability Type Output", airtable_field_id="fldAJpbCG0JAB7oHO", priority_field="TRACEABILITY", transform="clean"),
 ]
 
 # Airtable field names for allergens/features (for fields[] API parameter)
@@ -82,6 +82,13 @@ SHELF_LIFE_AIRTABLE_FIELDS: list[str] = [
     "Shelf Life Input",
     "Shelf Life Unit Input",
 ]
+
+SHELF_LIFE_FIELD_IDS: dict[str, str] = {
+    "SKU Trim (EDI) (from Products)": "fldehuzyU16onAMpt",
+    "Type Label (Custom)": "fldm7AVt5zm0H9Pt9",
+    "Shelf Life Input": "fldCahhZnYomym7KM",
+    "Shelf Life Unit Input": "fldJAMWuzPKE7rByk",
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -131,6 +138,23 @@ PRICE_LIST_AIRTABLE_FIELDS: list[str] = [
     # "Buy_Sell Unit (Priority)" already in main field map
 ]
 
+PRICE_LIST_FIELD_IDS: dict[str, str] = {
+    "Lvl 1 Price List Code": "fldrTfEeH1ADgfMlk",
+    "LVL 1 SALE PRICE (from Price Import)": "fld30xcHt2DgOAtkR",
+    "Lvl 2 Price List Code": "fldBvFfxqXmOJO5lF",
+    "LVL 2 SALE PRICE (from Price Import)": "fld9Ku04QU2bJiBYX",
+    "Lvl 3 Price List Code": "fldjxbX4zPxqc4TBt",
+    "LVL 3 SALE PRICE (from Price Import)": "fld8xjGcFsoLKefQN",
+    "EDI $": "fldalxbwNuJkfe3hY",
+    "EDI Price Quantity": "fld0qRVk6cgwPrFjL",
+}
+
+PRICE_LIST_SHARED_FIELD_IDS: dict[str, str] = {
+    "EDI $": "fldalxbwNuJkfe3hY",
+    "EDI Price Quantity": "fld0qRVk6cgwPrFjL",
+    "Buy_Sell Unit (Priority)": "fldRgdNphJxTXxivY",
+}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. BIN LOCATIONS (PARTLOCATIONS_SUBFORM)
@@ -140,8 +164,8 @@ PRICE_LIST_AIRTABLE_FIELDS: list[str] = [
 BIN_SUBFORM_NAME = "PARTLOCATIONS_SUBFORM"
 
 BIN_FIELD_MAP: list[FieldMapping] = [
-    FieldMapping(airtable_field="EDI Main", priority_field="WARHSNAME", transform="clean"),
-    FieldMapping(airtable_field="Simplified Bin Location (from Bin # Priority)", priority_field="LOCNAME", transform="clean"),
+    FieldMapping(airtable_field="EDI Main", airtable_field_id="fldVWfuOMYZumA02w", priority_field="WARHSNAME", transform="clean"),
+    FieldMapping(airtable_field="Simplified Bin Location (from Bin # Priority)", airtable_field_id="fldtSNAJWDOy9k0oP", priority_field="LOCNAME", transform="clean"),
 ]
 
 BIN_AIRTABLE_FIELDS: list[str] = [m.airtable_field for m in BIN_FIELD_MAP]

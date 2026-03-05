@@ -43,6 +43,20 @@ SITES_SUBFORM_NAME = "CUSTDESTS_SUBFORM"
 # CUSTOMERSTEXT_SUBFORM → returns 404, cannot sync via API
 # CUSTSHIPTEXT_SUBFORM → returns 404, cannot sync via API
 
+# ── Field IDs ──────────────────────────────────────────────────────────────────
+AIRTABLE_KEY_FIELD_ID = "fldsnRoMbOuU26Ezc"  # Priority Cust. ID
+AIRTABLE_KEY_FIELD_WRITABLE_ID = "fldAn9q5PAOQOQBb3"  # Account ID
+AIRTABLE_FIELD_LAST_SYNCED_ID = "fldsN7JczubWY49Ry"  # Last Synced to Priority
+AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY_ID = "fldVb2pIX4BLBJWgT"  # Last Synced from Priority
+AIRTABLE_FIELD_PRIORITY_UDATE_ID = "fldWLCnJFrdiXGHEJ"  # Priority UDATE
+
+TIMESTAMP_FIELD_IDS = {
+    "last_synced_to": AIRTABLE_FIELD_LAST_SYNCED_ID,
+    "last_synced_from": AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY_ID,
+    "priority_udate": AIRTABLE_FIELD_PRIORITY_UDATE_ID,
+    "sync_comments": "fldCPYmJdtmi5440n",  # Sync Comments
+}
+
 TIMESTAMP_FIELDS = {
     "last_synced_to": AIRTABLE_FIELD_LAST_SYNCED,
     "last_synced_from": AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY,

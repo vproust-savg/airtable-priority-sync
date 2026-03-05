@@ -46,6 +46,19 @@ AIRTABLE_FIELD_LAST_SYNCED = "Last Synced to Priority"
 AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY = "Last Synced from Priority"
 AIRTABLE_FIELD_PRIORITY_UDATE = "Priority UDATE"
 
+# ── Field IDs ──────────────────────────────────────────────────────────────────
+AIRTABLE_KEY_FIELD_ID = "fldPympnf6DCHeZvo"  # Price List Code
+AIRTABLE_FIELD_LAST_SYNCED_ID = "fld4TucAfGbT64SAY"  # Last Synced to Priority
+AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY_ID = "fldt6jJZbwxlcd0xI"  # Last Synced from Priority
+AIRTABLE_FIELD_PRIORITY_UDATE_ID = "fldcFJReb7R6J7G6A"  # Priority UDATE
+
+TIMESTAMP_FIELD_IDS = {
+    "last_synced_to": AIRTABLE_FIELD_LAST_SYNCED_ID,
+    "last_synced_from": AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY_ID,
+    "priority_udate": AIRTABLE_FIELD_PRIORITY_UDATE_ID,
+    "sync_comments": "fld0SkgNLWvhrIXHn",  # Sync Comments
+}
+
 TIMESTAMP_FIELDS = {
     "last_synced_to": AIRTABLE_FIELD_LAST_SYNCED,
     "last_synced_from": AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY,

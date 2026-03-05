@@ -29,7 +29,7 @@ from urllib.parse import quote
 import requests
 
 from sync.core.airtable_client import AirtableClient
-from sync.core.base_engine import BaseSyncEngine, map_airtable_to_priority
+from sync.core.base_engine import BaseSyncEngine, build_field_id_map, map_airtable_to_priority
 from sync.core.config import (
     AIRTABLE_API_BASE,
     AIRTABLE_MAX_RETRIES,
@@ -45,7 +45,9 @@ from sync.workflows.vendors.config import (
     AIRTABLE_CONTACTS_TABLE_ID,
     AIRTABLE_CONTACTS_VIEW,
     AIRTABLE_KEY_FIELD,
+    AIRTABLE_KEY_FIELD_ID,
     AIRTABLE_KEY_FIELD_WRITABLE,
+    AIRTABLE_KEY_FIELD_WRITABLE_ID,
     AIRTABLE_PRODUCTS_TABLE_ID,
     AIRTABLE_PRODUCTS_VIEW,
     AIRTABLE_SITES_TABLE_ID,
@@ -59,6 +61,7 @@ from sync.workflows.vendors.config import (
     PRIORITY_KEY_FIELD,
     SITES_SUBFORM_NAME,
     TIMESTAMP_FIELDS,
+    TIMESTAMP_FIELD_IDS,
 )
 from sync.workflows.vendors.field_mapping import (
     A2P_FIELD_MAP,
@@ -121,12 +124,23 @@ class VendorSyncEngine(BaseSyncEngine):
         base_id_override: str | None,
         token_override: str | None,
     ) -> AirtableClient:
+        field_id_map = build_field_id_map(
+            A2P_FIELD_MAP, P2A_FIELD_MAP,
+            FNCSUP_A2P_FIELD_MAP, FNCSUP_P2A_FIELD_MAP,
+            FNCSUP_BANK_A2P_FIELD_MAP, FNCSUP_BANK_P2A_FIELD_MAP,
+            extra={
+                AIRTABLE_KEY_FIELD: AIRTABLE_KEY_FIELD_ID,
+                AIRTABLE_KEY_FIELD_WRITABLE: AIRTABLE_KEY_FIELD_WRITABLE_ID,
+                **{v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()},
+            },
+        )
         return AirtableClient(
             table_name=AIRTABLE_TABLE_NAME,
             key_field=AIRTABLE_KEY_FIELD,
             key_field_writable=AIRTABLE_KEY_FIELD_WRITABLE,
             sync_view=AIRTABLE_SYNC_VIEW,
             timestamp_fields=TIMESTAMP_FIELDS,
+            field_id_map=field_id_map,
             base_id_override=base_id_override,
             token_override=token_override,
         )

@@ -27,7 +27,7 @@ from typing import Any
 import requests
 
 from sync.core.airtable_client import AirtableClient
-from sync.core.base_engine import BaseSyncEngine, map_airtable_to_priority
+from sync.core.base_engine import BaseSyncEngine, build_field_id_map, map_airtable_to_priority
 from sync.core.config import (
     AIRTABLE_API_BASE,
     AIRTABLE_MAX_RETRIES,
@@ -42,7 +42,9 @@ from sync.workflows.customers.config import (
     AIRTABLE_CONTACTS_VIEW,
     AIRTABLE_DELIVERY_DAYS_VIEW,
     AIRTABLE_KEY_FIELD,
+    AIRTABLE_KEY_FIELD_ID,
     AIRTABLE_KEY_FIELD_WRITABLE,
+    AIRTABLE_KEY_FIELD_WRITABLE_ID,
     AIRTABLE_PRICE_LIST_VIEW,
     AIRTABLE_SITES_TABLE_ID,
     AIRTABLE_SITES_VIEW,
@@ -58,6 +60,7 @@ from sync.workflows.customers.config import (
     SITES_SUBFORM_NAME,
     SPECIAL_PRICES_SUBFORM_NAME,
     TIMESTAMP_FIELDS,
+    TIMESTAMP_FIELD_IDS,
     WEEKDAY_SUBFORM_NAME,
 )
 from sync.workflows.customers.field_mapping import (
@@ -123,12 +126,22 @@ class CustomerSyncEngine(BaseSyncEngine):
         base_id_override: str | None,
         token_override: str | None,
     ) -> AirtableClient:
+        field_id_map = build_field_id_map(
+            A2P_FIELD_MAP, P2A_FIELD_MAP,
+            FNCCUST_A2P_FIELD_MAP, FNCCUST_P2A_FIELD_MAP,
+            extra={
+                AIRTABLE_KEY_FIELD: AIRTABLE_KEY_FIELD_ID,
+                AIRTABLE_KEY_FIELD_WRITABLE: AIRTABLE_KEY_FIELD_WRITABLE_ID,
+                **{v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()},
+            },
+        )
         return AirtableClient(
             table_name=AIRTABLE_TABLE_NAME,
             key_field=AIRTABLE_KEY_FIELD,
             key_field_writable=AIRTABLE_KEY_FIELD_WRITABLE,
             sync_view=AIRTABLE_SYNC_VIEW,
             timestamp_fields=TIMESTAMP_FIELDS,
+            field_id_map=field_id_map,
             base_id_override=base_id_override,
             token_override=token_override,
         )

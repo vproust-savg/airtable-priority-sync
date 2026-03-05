@@ -27,6 +27,7 @@ A2P_FIELD_MAP: list[FieldMapping] = [
     # ── Primary key ──────────────────────────────────────────────────────
     FieldMapping(
         airtable_field="Priority Cust. ID",
+        airtable_field_id="fldsnRoMbOuU26Ezc",
         priority_field="CUSTNAME",
         transform="clean",
         required=True,
@@ -35,72 +36,84 @@ A2P_FIELD_MAP: list[FieldMapping] = [
     # ── Financial parameters ─────────────────────────────────────────────
     FieldMapping(
         airtable_field="Billing Priority Cust. ID (from Billing Cust. Number)",
+        airtable_field_id="fldXpYyrOi3aLQr4a",
         priority_field="PCUSTNAME",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Cust Group Code",
+        airtable_field_id="fldA2clRU9QmVdXwy",
         priority_field="CTYPECODE",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Priority Customer Status",
+        airtable_field_id="fldLhntR45Memi1na",
         priority_field="STATDES",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Financial Parameters Assigned",
+        airtable_field_id="fldBOeGZ4A33NNM1o",
         priority_field="OWNERLOGIN",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Financial Account No",
+        airtable_field_id="fldAGfiflEytwOPlI",
         priority_field="ACCNAME",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Tax Code",
+        airtable_field_id="fldl7A0ajRvutueWk",
         priority_field="TAXCODE",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Invoice Type",
+        airtable_field_id="fldOZsMtsorhrXu0I",
         priority_field="IVTYPE",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Payment Terms Code",
+        airtable_field_id="fldaSfFLCnVHKAWti",
         priority_field="PAYCODE",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Finance Charge Code",
+        airtable_field_id="fldFaoGchkTHlStjK",
         priority_field="INTERESTNAME",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Curr",
+        airtable_field_id="fldoGuJdTrWu2SApq",
         priority_field="CODE",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="EDI_Y",
+        airtable_field_id="fld1YPOQs19ILedr6",
         priority_field="PAYMENTLINK",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Pay to Bank Account",
+        airtable_field_id="fldTXArpiuPDDBqyI",
         priority_field="CASHNAME",
         transform="clean",
         field_type="str",
@@ -121,6 +134,7 @@ A2P_FIELD_MAP: list[FieldMapping] = [
 P2A_FIELD_MAP: list[FieldMapping] = [
     FieldMapping(
         airtable_field="Priority Customer Status",
+        airtable_field_id="fldLhntR45Memi1na",
         priority_field="STATDES",
         transform="clean",
         field_type="str",

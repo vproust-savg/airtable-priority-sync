@@ -50,3 +50,17 @@ TIMESTAMP_FIELDS = {
     "priority_udate": AIRTABLE_FIELD_PRIORITY_UDATE,
     "sync_comments": "Sync Comments",
 }
+
+# ── Field IDs ──────────────────────────────────────────────────────────────────
+AIRTABLE_KEY_FIELD_ID = "fldLkVY6ul00KnMJO"  # Priority Vendor ID
+AIRTABLE_KEY_FIELD_WRITABLE_ID = "fldQzGeL311gCqV6M"  # Vendor_ID
+AIRTABLE_FIELD_LAST_SYNCED_ID = "fld45KwIRWg3jmY9R"  # Last Synced to Priority
+AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY_ID = "fldyYXhEBmDgRzJ2C"  # Last Synced from Priority
+AIRTABLE_FIELD_PRIORITY_UDATE_ID = "fld4jzA0ORwkIWiOz"  # Priority UDATE
+
+TIMESTAMP_FIELD_IDS = {
+    "last_synced_to": AIRTABLE_FIELD_LAST_SYNCED_ID,
+    "last_synced_from": AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY_ID,
+    "priority_udate": AIRTABLE_FIELD_PRIORITY_UDATE_ID,
+    "sync_comments": "fldUlcPcylEWG3Nwj",  # Sync Comments
+}

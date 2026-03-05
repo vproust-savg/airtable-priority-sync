@@ -37,7 +37,8 @@ class SyncAction(str, Enum):
 class FieldMapping(BaseModel):
     """Defines how one Airtable field maps to one Priority field."""
 
-    airtable_field: str
+    airtable_field: str                    # Human-readable name (for logging/display)
+    airtable_field_id: str | None = None   # Stable Airtable field ID (for API calls)
     priority_field: str
     transform: Literal["clean", "format_price", "to_int", "to_float", "priority_yn"]
     required: bool = False

@@ -32,14 +32,17 @@ from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
 from sync.workflows.techsheets.config import (
     AIRTABLE_KEY_FIELD,
+    AIRTABLE_KEY_FIELD_ID,
     AIRTABLE_SYNC_VIEW,
     AIRTABLE_TABLE_NAME,
     AIRTABLE_TECHSHEET_FIELD,
+    AIRTABLE_TECHSHEET_FIELD_ID,
     EXTFILEDES_PREFIX,
     PRIORITY_ENTITY,
     PRIORITY_KEY_FIELD,
     PRIORITY_SUBFORM,
     TIMESTAMP_FIELDS,
+    TIMESTAMP_FIELD_IDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,11 +78,19 @@ class TechSheetSyncEngine:
         self.workflow_name = workflow_name
         self.stats = SyncStats()
 
+        # Build field ID map for the Products table (tech sheets use same table)
+        field_id_map: dict[str, str] = {
+            AIRTABLE_KEY_FIELD: AIRTABLE_KEY_FIELD_ID,
+            AIRTABLE_TECHSHEET_FIELD: AIRTABLE_TECHSHEET_FIELD_ID,
+            **{v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()},
+        }
+
         self.airtable = AirtableClient(
             table_name=AIRTABLE_TABLE_NAME,
             key_field=AIRTABLE_KEY_FIELD,
             sync_view=AIRTABLE_SYNC_VIEW,
             timestamp_fields=TIMESTAMP_FIELDS,
+            field_id_map=field_id_map,
             base_id_override=base_id_override,
             token_override=token_override,
         )

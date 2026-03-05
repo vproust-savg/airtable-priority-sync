@@ -21,6 +21,7 @@ from sync.core.models import FieldMapping
 A2P_FIELD_MAP: list[FieldMapping] = [
     FieldMapping(
         airtable_field="Price List Code",
+        airtable_field_id="fldPympnf6DCHeZvo",
         priority_field="PLNAME",
         transform="clean",
         required=True,
@@ -43,6 +44,20 @@ AIRTABLE_FIELDS_TO_FETCH: list[str] = [
     "LVL 2 SALE PRICE",
     "LVL 3 SALE PRICE",
 ]
+
+AIRTABLE_FIELD_IDS: dict[str, str] = {
+    "Price List Code": "fldPympnf6DCHeZvo",
+    "Price List Desc.": "fld6Zu2fpICyJD6s2",
+    "Price List Date Output": "fldfy9fduu8QnK38K",
+    "SKU Trim (EDI) (from Products)": "fldz5TJfay7VpiA2C",
+    "Price": "fldKDM53Gf1dQCQQA",
+    "List Currency": "fldBfEC89HL9AqgJa",
+    "Part Currency": "fldsmJHAIuzAKepn5",
+    "Quantity": "fldxCPr9DPAW8aHTS",
+    "LVL 1 SALE PRICE": "fld39uwa1u1Y6GLJs",
+    "LVL 2 SALE PRICE": "fldgatgC8D0uJhzdH",
+    "LVL 3 SALE PRICE": "fldV8RQyEGhjhQUCe",
+}
 
 # ═════════════════════════════════════════════════════════════════════════════
 # P→A — very limited

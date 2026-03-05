@@ -22,6 +22,7 @@ A2P_FIELD_MAP: list[FieldMapping] = [
     # ── Primary key ──────────────────────────────────────────────────────
     FieldMapping(
         airtable_field="SKU Trim (EDI)",
+        airtable_field_id="fldiGjELA26tbBi8f",
         priority_field="PARTNAME",
         transform="clean",
         required=True,
@@ -30,42 +31,49 @@ A2P_FIELD_MAP: list[FieldMapping] = [
     # ── MRP parameters ───────────────────────────────────────────────────
     FieldMapping(
         airtable_field="Purchase Lead Time",
+        airtable_field_id="fldoSaWmwYoObgF3X",
         priority_field="PLEADTIME",
         transform="to_int",
         field_type="int",
     ),
     FieldMapping(
         airtable_field="Shipping Days",
+        airtable_field_id="fldUvBExbJD7L07lX",
         priority_field="SHIPMDAYS",
         transform="to_int",
         field_type="int",
     ),
     FieldMapping(
         airtable_field="Safety Stock",
+        airtable_field_id="fldnchhLM2lTsdEmS",
         priority_field="INVLEVEL",
         transform="to_int",
         field_type="int",
     ),
     FieldMapping(
         airtable_field="Main Buyer Priority Code",
+        airtable_field_id="fld3x0njsSny4q6hx",
         priority_field="USERLOGIN",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="V-Vendor ID (from Preferred Vendor)",
+        airtable_field_id="fld1EMYPIfS1lW9GC",
         priority_field="SUPNAME",
         transform="clean",
         field_type="str",
     ),
     FieldMapping(
         airtable_field="Min for Order",
+        airtable_field_id="fldNCOEZH1OF0TCGk",
         priority_field="MINPURQUANT",
         transform="to_int",
         field_type="int",
     ),
     FieldMapping(
         airtable_field="Increment for Order",
+        airtable_field_id="fldAOemtBN449wYPU",
         priority_field="INCREMENT",
         transform="to_int",
         field_type="int",
@@ -83,30 +91,35 @@ A2P_FIELD_MAP: list[FieldMapping] = [
 P2A_FIELD_MAP: list[FieldMapping] = [
     FieldMapping(
         airtable_field="Purchase Lead Time",
+        airtable_field_id="fldoSaWmwYoObgF3X",
         priority_field="PLEADTIME",
         transform="to_int",
         field_type="int",
     ),
     FieldMapping(
         airtable_field="Shipping Days",
+        airtable_field_id="fldUvBExbJD7L07lX",
         priority_field="SHIPMDAYS",
         transform="to_int",
         field_type="int",
     ),
     FieldMapping(
         airtable_field="Safety Stock",
+        airtable_field_id="fldnchhLM2lTsdEmS",
         priority_field="INVLEVEL",
         transform="to_int",
         field_type="int",
     ),
     FieldMapping(
         airtable_field="Min for Order",
+        airtable_field_id="fldNCOEZH1OF0TCGk",
         priority_field="MINPURQUANT",
         transform="to_int",
         field_type="int",
     ),
     FieldMapping(
         airtable_field="Increment for Order",
+        airtable_field_id="fldAOemtBN449wYPU",
         priority_field="INCREMENT",
         transform="to_int",
         field_type="int",
