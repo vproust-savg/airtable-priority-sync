@@ -44,7 +44,7 @@ from typing import Any
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 
 from sync.core.config import LA_TIMEZONE, WEBHOOK_API_KEY, get_priority_url
-from sync.core.models import SyncDirection, SyncMode
+from sync.core.models import ConflictStrategy, SyncDirection, SyncMode
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +151,34 @@ def _resolve_priority_env(env: str | None) -> str | None:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Conflict strategy helpers ─────────────────────────────────────────────────
+
+VALID_CONFLICT_STRATEGIES = {s.value for s in ConflictStrategy}
+
+
+def _resolve_conflict_strategy(conflict: str | None) -> ConflictStrategy:
+    """
+    Resolve the ?conflict= query param to a ConflictStrategy enum.
+    Returns SOURCE_WINS (default) if not specified.
+    """
+    if not conflict:
+        return ConflictStrategy.SOURCE_WINS
+    conflict = conflict.strip().lower()
+    if conflict not in VALID_CONFLICT_STRATEGIES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid conflict strategy: '{conflict}'. "
+                f"Allowed: {', '.join(sorted(VALID_CONFLICT_STRATEGIES))}"
+            ),
+        )
+    return ConflictStrategy(conflict)
+
+
+# Standalone workflows that don't support conflict_strategy
+_STANDALONE_WORKFLOWS = {"images", "techsheets"}
+
+
 # ── Background sync runner ────────────────────────────────────────────────────
 
 def _run_sync_background(
@@ -158,6 +186,7 @@ def _run_sync_background(
     mode: SyncMode = SyncMode.FULL,
     direction: SyncDirection = SyncDirection.AIRTABLE_TO_PRIORITY,
     priority_url_override: str | None = None,
+    conflict_strategy: ConflictStrategy = ConflictStrategy.SOURCE_WINS,
 ) -> None:
     """Execute the sync in a background thread."""
     _lazy_register_workflows()
@@ -165,7 +194,8 @@ def _run_sync_background(
 
     try:
         engine_class = workflow["engine_factory"]
-        engine = engine_class(
+
+        engine_kwargs: dict[str, Any] = dict(
             direction=direction,
             dry_run=False,
             trigger="webhook",
@@ -173,10 +203,14 @@ def _run_sync_background(
             workflow_name=workflow_name,
             priority_url_override=priority_url_override,
         )
+        if workflow_name not in _STANDALONE_WORKFLOWS:
+            engine_kwargs["conflict_strategy"] = conflict_strategy
+
+        engine = engine_class(**engine_kwargs)
         stats = engine.run()
 
         now_la = datetime.now(timezone.utc).astimezone(LA_TIMEZONE)
-        workflow["last_run"] = {
+        run_info: dict[str, Any] = {
             "completed_at": now_la.isoformat(),
             "workflow": workflow_name,
             "direction": direction.value,
@@ -189,6 +223,9 @@ def _run_sync_background(
             "errors": stats.errors,
             "duration": stats.duration_display,
         }
+        if stats.conflicts:
+            run_info["conflicts"] = len(stats.conflicts)
+        workflow["last_run"] = run_info
         logger.info("Webhook sync completed (%s): %s", workflow_name, workflow["last_run"])
 
     except Exception as e:
@@ -214,6 +251,7 @@ def _start_workflow(
     mode: SyncMode = SyncMode.FULL,
     direction: SyncDirection = SyncDirection.AIRTABLE_TO_PRIORITY,
     priority_url_override: str | None = None,
+    conflict_strategy: ConflictStrategy = ConflictStrategy.SOURCE_WINS,
 ) -> dict[str, str]:
     """Start a workflow sync in background. Returns response dict."""
     _lazy_register_workflows()
@@ -237,6 +275,7 @@ def _start_workflow(
         mode=mode,
         direction=direction,
         priority_url_override=priority_url_override,
+        conflict_strategy=conflict_strategy,
     )
 
     now_la = datetime.now(timezone.utc).astimezone(LA_TIMEZONE)
@@ -267,33 +306,37 @@ def health_check() -> dict[str, str]:
 @app.get("/webhook/products/sync", status_code=202)
 def products_sync(
     background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+    conflict: str | None = None,
 ) -> dict[str, str]:
     """A→P full sync for products."""
     _verify_query_key(key)
-    return _start_workflow("products", background_tasks, priority_url_override=_resolve_priority_env(env))
+    return _start_workflow("products", background_tasks, priority_url_override=_resolve_priority_env(env), conflict_strategy=_resolve_conflict_strategy(conflict))
 
 
 @app.get("/webhook/products/sync-status", status_code=202)
 def products_sync_status(
     background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+    conflict: str | None = None,
 ) -> dict[str, str]:
     """A→P status-only sync for products."""
     _verify_query_key(key)
-    return _start_workflow("products", background_tasks, mode=SyncMode.STATUS, priority_url_override=_resolve_priority_env(env))
+    return _start_workflow("products", background_tasks, mode=SyncMode.STATUS, priority_url_override=_resolve_priority_env(env), conflict_strategy=_resolve_conflict_strategy(conflict))
 
 
 @app.get("/webhook/products/sync-from-priority", status_code=202)
 def products_sync_from_priority(
     background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+    conflict: str | None = None,
 ) -> dict[str, str]:
     """P→A full sync for products."""
     _verify_query_key(key)
-    return _start_workflow("products", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env))
+    return _start_workflow("products", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env), conflict_strategy=_resolve_conflict_strategy(conflict))
 
 
 @app.get("/webhook/products/sync-from-priority-status", status_code=202)
 def products_sync_from_priority_status(
     background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+    conflict: str | None = None,
 ) -> dict[str, str]:
     """P→A status-only sync for products."""
     _verify_query_key(key)
@@ -301,6 +344,7 @@ def products_sync_from_priority_status(
         "products", background_tasks,
         mode=SyncMode.STATUS, direction=SyncDirection.PRIORITY_TO_AIRTABLE,
         priority_url_override=_resolve_priority_env(env),
+        conflict_strategy=_resolve_conflict_strategy(conflict),
     )
 
 
@@ -309,19 +353,21 @@ def products_sync_from_priority_status(
 @app.get("/webhook/vendors/sync", status_code=202)
 def vendors_sync(
     background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+    conflict: str | None = None,
 ) -> dict[str, str]:
     """A→P full sync for vendors (all)."""
     _verify_query_key(key)
-    return _start_workflow("vendors", background_tasks, priority_url_override=_resolve_priority_env(env))
+    return _start_workflow("vendors", background_tasks, priority_url_override=_resolve_priority_env(env), conflict_strategy=_resolve_conflict_strategy(conflict))
 
 
 @app.get("/webhook/vendors/sync-from-priority", status_code=202)
 def vendors_sync_from_priority(
     background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+    conflict: str | None = None,
 ) -> dict[str, str]:
     """P→A full sync for vendors (all)."""
     _verify_query_key(key)
-    return _start_workflow("vendors", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env))
+    return _start_workflow("vendors", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env), conflict_strategy=_resolve_conflict_strategy(conflict))
 
 
 # ── Vendor Price Lists ───────────────────────────────────────────────────────
@@ -329,19 +375,21 @@ def vendors_sync_from_priority(
 @app.get("/webhook/vendor-prices/sync", status_code=202)
 def vendor_prices_sync(
     background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+    conflict: str | None = None,
 ) -> dict[str, str]:
     """A→P full sync for vendor price lists."""
     _verify_query_key(key)
-    return _start_workflow("vendor-prices", background_tasks, priority_url_override=_resolve_priority_env(env))
+    return _start_workflow("vendor-prices", background_tasks, priority_url_override=_resolve_priority_env(env), conflict_strategy=_resolve_conflict_strategy(conflict))
 
 
 @app.get("/webhook/vendor-prices/sync-from-priority", status_code=202)
 def vendor_prices_sync_from_priority(
     background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+    conflict: str | None = None,
 ) -> dict[str, str]:
     """P→A full sync for vendor price lists."""
     _verify_query_key(key)
-    return _start_workflow("vendor-prices", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env))
+    return _start_workflow("vendor-prices", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env), conflict_strategy=_resolve_conflict_strategy(conflict))
 
 
 # ── Customers ────────────────────────────────────────────────────────────────
@@ -349,19 +397,21 @@ def vendor_prices_sync_from_priority(
 @app.get("/webhook/customers/sync", status_code=202)
 def customers_sync(
     background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+    conflict: str | None = None,
 ) -> dict[str, str]:
     """A→P full sync for customers (all)."""
     _verify_query_key(key)
-    return _start_workflow("customers", background_tasks, priority_url_override=_resolve_priority_env(env))
+    return _start_workflow("customers", background_tasks, priority_url_override=_resolve_priority_env(env), conflict_strategy=_resolve_conflict_strategy(conflict))
 
 
 @app.get("/webhook/customers/sync-from-priority", status_code=202)
 def customers_sync_from_priority(
     background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+    conflict: str | None = None,
 ) -> dict[str, str]:
     """P→A full sync for customers (all)."""
     _verify_query_key(key)
-    return _start_workflow("customers", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env))
+    return _start_workflow("customers", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env), conflict_strategy=_resolve_conflict_strategy(conflict))
 
 
 # ── Customer Price Lists ─────────────────────────────────────────────────────
@@ -369,19 +419,21 @@ def customers_sync_from_priority(
 @app.get("/webhook/customer-prices/sync", status_code=202)
 def customer_prices_sync(
     background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+    conflict: str | None = None,
 ) -> dict[str, str]:
     """A→P full sync for customer price lists."""
     _verify_query_key(key)
-    return _start_workflow("customer-prices", background_tasks, priority_url_override=_resolve_priority_env(env))
+    return _start_workflow("customer-prices", background_tasks, priority_url_override=_resolve_priority_env(env), conflict_strategy=_resolve_conflict_strategy(conflict))
 
 
 @app.get("/webhook/customer-prices/sync-from-priority", status_code=202)
 def customer_prices_sync_from_priority(
     background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
+    conflict: str | None = None,
 ) -> dict[str, str]:
     """P→A full sync for customer price lists."""
     _verify_query_key(key)
-    return _start_workflow("customer-prices", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env))
+    return _start_workflow("customer-prices", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env), conflict_strategy=_resolve_conflict_strategy(conflict))
 
 
 # ── Images ──────────────────────────────────────────────────────────────────

@@ -99,24 +99,46 @@ def print_record_line(
     print(line)
 
 
+def print_conflict_line(
+    key: str,
+    field: str,
+    source_value: object,
+    target_value: object,
+    resolution: str,
+) -> None:
+    """Print a conflict warning line."""
+    src = repr(source_value) if source_value is not None else "None"
+    tgt = repr(target_value) if target_value is not None else "None"
+    # Truncate long values for readability
+    if len(src) > 40:
+        src = src[:37] + "..."
+    if len(tgt) > 40:
+        tgt = tgt[:37] + "..."
+    print(f"    ⚠ CONFLICT  {key}  {field}: source={src}  target={tgt}  → {resolution}")
+
+
 def print_summary(
     created: int,
     updated: int,
     skipped: int,
     errors: int,
     duration: str,
+    conflicts: int = 0,
 ) -> None:
     """Print the final sync summary."""
     print()
     print("=" * 52)
     total = created + updated + skipped + errors
-    print(
+    line = (
         f"  COMPLETE  |  "
         f"Created: {created}  "
         f"Updated: {updated}  "
         f"Skipped: {skipped}  "
         f"Errors: {errors}"
     )
+    if conflicts > 0:
+        line += f"  Conflicts: {conflicts}"
+    print(line)
     print(f"  Total: {total}  |  Duration: {duration}")
     print("=" * 52)
     print()

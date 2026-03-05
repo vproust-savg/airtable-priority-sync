@@ -22,12 +22,15 @@ import requests
 from sync.core.airtable_client import AirtableClient
 from sync.core.logger_setup import (
     print_banner,
+    print_conflict_line,
     print_detail,
     print_record_line,
     print_section,
     print_summary,
 )
 from sync.core.models import (
+    ConflictRecord,
+    ConflictStrategy,
     FieldMapping,
     SubformResult,
     SyncAction,
@@ -343,6 +346,7 @@ class BaseSyncEngine(abc.ABC):
         base_id_override: str | None = None,
         token_override: str | None = None,
         priority_url_override: str | None = None,
+        conflict_strategy: ConflictStrategy = ConflictStrategy.SOURCE_WINS,
     ) -> None:
         self.direction = direction
         self.dry_run = dry_run
@@ -351,6 +355,7 @@ class BaseSyncEngine(abc.ABC):
         self.mode = mode
         self.workflow_name = workflow_name
         self.priority_url_override = priority_url_override
+        self.conflict_strategy = conflict_strategy
 
         # Create clients via subclass hooks
         self.airtable: AirtableClient = self._create_airtable_client(
@@ -815,6 +820,7 @@ class BaseSyncEngine(abc.ABC):
                 result=result,
                 index=index,
                 total=total,
+                airtable_fields=fields,
             )
 
         # Sub-form sync -- only if main entity sync succeeded
@@ -889,6 +895,104 @@ class BaseSyncEngine(abc.ABC):
             logger.error("Failed to create %s: %s", key, message)
             return result
 
+    # ── Conflict detection (A->P) ─────────────────────────────────────
+
+    def _detect_a2p_conflicts(
+        self,
+        key: str,
+        patch_body: dict[str, Any],
+        priority_current: dict[str, Any],
+        airtable_fields: dict[str, Any],
+    ) -> list[ConflictRecord]:
+        """
+        Check if Priority was independently modified since the last A→P sync.
+
+        Compares Priority's current UDATE with the stored 'Priority UDATE'
+        in the Airtable record.  If Priority's UDATE is newer, any fields
+        in the patch that differ from Priority's current value are conflicts.
+        """
+        conflicts: list[ConflictRecord] = []
+
+        # Get stored UDATE from Airtable record (set during last sync)
+        stored_udate = airtable_fields.get(
+            self.airtable.ts.get("priority_udate", "Priority UDATE"), ""
+        )
+        # Get current UDATE from Priority
+        current_udate = priority_current.get("UDATE", "")
+
+        if not stored_udate or not current_udate:
+            return conflicts  # Can't compare — no conflict detection possible
+
+        if str(current_udate) <= str(stored_udate):
+            return conflicts  # Priority hasn't changed since last sync
+
+        # Priority was modified — check which fields we're about to overwrite
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for priority_field in patch_body:
+            priority_value = priority_current.get(priority_field)
+            airtable_value = patch_body[priority_field]
+            # Only flag as conflict if Priority has a non-None value that differs
+            if priority_value is not None and priority_value != airtable_value:
+                conflicts.append(ConflictRecord(
+                    entity_key=key,
+                    field_name=priority_field,
+                    source_value=airtable_value,
+                    target_value=priority_value,
+                    direction="A->P",
+                    resolution="pending",
+                    timestamp=now_iso,
+                ))
+
+        return conflicts
+
+    def _apply_a2p_conflict_resolution(
+        self,
+        conflicts: list[ConflictRecord],
+        patch_body: dict[str, Any],
+        key: str,
+        result: SyncRecord,
+        index: int,
+        total: int,
+    ) -> dict[str, Any] | None:
+        """
+        Apply the conflict resolution strategy and return the (possibly modified)
+        patch body, or None if the entire record should be skipped.
+
+        Logs each conflict and appends to self.stats.conflicts.
+        """
+        for c in conflicts:
+            if self.conflict_strategy == ConflictStrategy.LOG_ONLY:
+                c.resolution = "skipped"
+            elif self.conflict_strategy == ConflictStrategy.SKIP_RECORD:
+                c.resolution = "record_skipped"
+            else:
+                c.resolution = "source_wins"
+
+            self.stats.conflicts.append(c)
+            print_conflict_line(key, c.field_name, c.source_value, c.target_value, c.resolution)
+            logger.warning(
+                "Conflict on %s.%s: source=%r target=%r → %s",
+                key, c.field_name, c.source_value, c.target_value, c.resolution,
+            )
+
+        if self.conflict_strategy == ConflictStrategy.SKIP_RECORD:
+            result.action = SyncAction.SKIP
+            result.error_message = f"Conflict on {len(conflicts)} field(s) — record skipped"
+            self.stats.skipped += 1
+            print_record_line(
+                index, total, key, "SKIP",
+                f"conflict on {len(conflicts)} field(s) — record skipped",
+            )
+            return None
+
+        if self.conflict_strategy == ConflictStrategy.LOG_ONLY:
+            # Remove conflicting fields from the patch — don't overwrite
+            for c in conflicts:
+                patch_body.pop(c.field_name, None)
+
+        # SOURCE_WINS: patch_body is unchanged
+        return patch_body
+
     def _update_entity(
         self,
         key: str,
@@ -896,6 +1000,7 @@ class BaseSyncEngine(abc.ABC):
         result: SyncRecord,
         index: int,
         total: int,
+        airtable_fields: dict[str, Any] | None = None,
     ) -> SyncRecord:
         """Compare and update an existing entity in Priority."""
 
@@ -946,6 +1051,28 @@ class BaseSyncEngine(abc.ABC):
             print_record_line(index, total, key, "SKIP", "no changes")
             logger.debug("No changes for %s", key)
             return result
+
+        # ── Conflict detection ──────────────────────────────────────────
+        if airtable_fields is not None:
+            conflicts = self._detect_a2p_conflicts(
+                key, patch_body, priority_current, airtable_fields,
+            )
+            if conflicts:
+                resolved = self._apply_a2p_conflict_resolution(
+                    conflicts, patch_body, key, result, index, total,
+                )
+                if resolved is None:
+                    # Record was skipped by conflict strategy
+                    return result
+                patch_body = resolved
+                if not patch_body:
+                    # All fields were removed by log_only strategy
+                    result.action = SyncAction.SKIP
+                    result.priority_udate = priority_current.get("UDATE")
+                    result.error_message = f"All {len(conflicts)} changed field(s) had conflicts — skipped"
+                    self.stats.skipped += 1
+                    print_record_line(index, total, key, "SKIP", "all fields had conflicts")
+                    return result
 
         if self.dry_run:
             result.action = SyncAction.UPDATE
@@ -1002,6 +1129,89 @@ class BaseSyncEngine(abc.ABC):
             print_record_line(index, total, key, "ERROR", f"UPDATE failed ({status_str})")
             logger.error("Failed to update %s: %s", key, message)
             return result
+
+    # ── Conflict detection (P->A) ─────────────────────────────────────
+
+    def _detect_p2a_conflicts(
+        self,
+        key: str,
+        patch: dict[str, Any],
+        current_airtable: dict[str, Any],
+    ) -> list[ConflictRecord]:
+        """
+        Check if Airtable was independently modified since the last P→A sync.
+
+        Compares 'Last Synced to Priority' with 'Last Synced from Priority'.
+        If A→P ran more recently than the last P→A, the record was modified
+        in Airtable — any fields in the patch that differ are conflicts.
+        """
+        conflicts: list[ConflictRecord] = []
+
+        last_synced_to = current_airtable.get(
+            self.airtable.ts.get("last_synced_to", "Last Synced to Priority"), ""
+        )
+        last_synced_from = current_airtable.get(
+            self.airtable.ts.get("last_synced_from", "Last Synced from Priority"), ""
+        )
+
+        if not last_synced_to or not last_synced_from:
+            return conflicts
+
+        if str(last_synced_to) <= str(last_synced_from):
+            return conflicts  # A→P hasn't run since last P→A — no conflict
+
+        # Airtable was modified via A→P — check which fields we're about to overwrite
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for airtable_field, priority_value in patch.items():
+            airtable_value = current_airtable.get(airtable_field)
+            if airtable_value is not None and airtable_value != priority_value:
+                conflicts.append(ConflictRecord(
+                    entity_key=key,
+                    field_name=airtable_field,
+                    source_value=priority_value,
+                    target_value=airtable_value,
+                    direction="P->A",
+                    resolution="pending",
+                    timestamp=now_iso,
+                ))
+
+        return conflicts
+
+    def _apply_p2a_conflict_resolution(
+        self,
+        conflicts: list[ConflictRecord],
+        patch: dict[str, Any],
+        key: str,
+        idx: int,
+        total: int,
+    ) -> dict[str, Any] | None:
+        """
+        Apply the conflict resolution strategy for P→A and return the
+        (possibly modified) patch, or None if the record should be skipped.
+        """
+        for c in conflicts:
+            if self.conflict_strategy == ConflictStrategy.LOG_ONLY:
+                c.resolution = "skipped"
+            elif self.conflict_strategy == ConflictStrategy.SKIP_RECORD:
+                c.resolution = "record_skipped"
+            else:
+                c.resolution = "source_wins"
+
+            self.stats.conflicts.append(c)
+            print_conflict_line(key, c.field_name, c.source_value, c.target_value, c.resolution)
+            logger.warning(
+                "Conflict on %s.%s: source=%r target=%r → %s",
+                key, c.field_name, c.source_value, c.target_value, c.resolution,
+            )
+
+        if self.conflict_strategy == ConflictStrategy.SKIP_RECORD:
+            return None
+
+        if self.conflict_strategy == ConflictStrategy.LOG_ONLY:
+            for c in conflicts:
+                patch.pop(c.field_name, None)
+
+        return patch
 
     # ═════════════════════════════════════════════════════════════════════
     # Priority -> Airtable
@@ -1174,6 +1384,54 @@ class BaseSyncEngine(abc.ABC):
                     )
                     comment = f"P→A: No changes ({now_short})"
                 else:
+                    # ── Conflict detection (P→A) ────────────────────────
+                    p2a_conflicts = self._detect_p2a_conflicts(
+                        key, patch, current_fields,
+                    )
+                    if p2a_conflicts:
+                        resolved = self._apply_p2a_conflict_resolution(
+                            p2a_conflicts, patch, key, idx, len(priority_records),
+                        )
+                        if resolved is None:
+                            # Record skipped by conflict strategy
+                            self.stats.skipped += 1
+                            print_record_line(
+                                idx, len(priority_records), key, "SKIP",
+                                f"conflict on {len(p2a_conflicts)} field(s) — record skipped",
+                            )
+                            comment = (
+                                f"P→A: Skipped — conflict on "
+                                f"{len(p2a_conflicts)} field(s) ({now_short})"
+                            )
+                            timestamp_updates.append({
+                                "record_id": airtable_record_id,
+                                "synced_at": datetime.now(timezone.utc).isoformat(),
+                                "priority_udate": record_udate,
+                                "sync_comment": comment,
+                                "_post_comment": True,
+                            })
+                            continue
+                        patch = resolved
+                        if not patch:
+                            # All fields removed by log_only strategy
+                            self.stats.skipped += 1
+                            print_record_line(
+                                idx, len(priority_records), key, "SKIP",
+                                "all fields had conflicts",
+                            )
+                            comment = (
+                                f"P→A: Skipped — all {len(p2a_conflicts)} "
+                                f"changed field(s) had conflicts ({now_short})"
+                            )
+                            timestamp_updates.append({
+                                "record_id": airtable_record_id,
+                                "synced_at": datetime.now(timezone.utc).isoformat(),
+                                "priority_udate": record_udate,
+                                "sync_comment": comment,
+                                "_post_comment": True,
+                            })
+                            continue
+
                     updates.append({"id": airtable_record_id, "fields": patch})
                     self.stats.updated += 1
 
@@ -1256,6 +1514,7 @@ class BaseSyncEngine(abc.ABC):
             skipped=self.stats.skipped,
             errors=self.stats.errors,
             duration=self.stats.duration_display,
+            conflicts=len(self.stats.conflicts),
         )
 
         if self.stats.error_details:

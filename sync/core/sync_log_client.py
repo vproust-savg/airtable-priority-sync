@@ -186,6 +186,22 @@ class SyncLogClient:
         if error_summary:
             fields["Error Summary"] = error_summary
 
+        # Conflict count and summary
+        if stats.conflicts:
+            fields["Conflicts"] = len(stats.conflicts)
+            conflict_lines = []
+            for c in stats.conflicts[:20]:  # Cap at 20 lines
+                src = repr(c.source_value)[:40] if c.source_value is not None else "None"
+                tgt = repr(c.target_value)[:40] if c.target_value is not None else "None"
+                conflict_lines.append(
+                    f"{c.entity_key}.{c.field_name}: "
+                    f"source={src} target={tgt} → {c.resolution}"
+                )
+            conflict_summary = "\n".join(conflict_lines)
+            if len(stats.conflicts) > 20:
+                conflict_summary += f"\n... and {len(stats.conflicts) - 20} more"
+            fields["Conflict Summary"] = conflict_summary
+
         # P→A: store the highest UDATE seen for change detection
         if stats.max_priority_udate:
             fields["Max UDATE"] = stats.max_priority_udate

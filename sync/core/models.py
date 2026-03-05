@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -30,6 +30,13 @@ class SyncAction(str, Enum):
     UPDATE = "UPDATE"
     SKIP = "SKIP"
     ERROR = "ERROR"
+
+
+class ConflictStrategy(str, Enum):
+    """How to resolve field-level conflicts when both systems changed a record."""
+    SOURCE_WINS = "source_wins"  # Default: sync source overwrites (current behavior)
+    LOG_ONLY = "log_only"        # Skip conflicting fields, log for manual resolution
+    SKIP_RECORD = "skip_record"  # Skip the entire record if any conflict detected
 
 
 # ── Field Mapping ────────────────────────────────────────────────────────────
@@ -79,6 +86,20 @@ class SyncError(BaseModel):
     timestamp: datetime
 
 
+# ── Conflict Detection ───────────────────────────────────────────────────────
+
+class ConflictRecord(BaseModel):
+    """A single field-level conflict detected during sync."""
+
+    entity_key: str              # e.g., SKU "P00001"
+    field_name: str              # e.g., "SPEC4" (Priority) or "Brand" (Airtable)
+    source_value: Any = None     # Value from the sync source (what we want to write)
+    target_value: Any = None     # Value currently in the target (what would be overwritten)
+    direction: str               # "A->P" or "P->A"
+    resolution: str = "pending"  # "source_wins", "skipped", "record_skipped"
+    timestamp: str = ""          # ISO 8601 when conflict was detected
+
+
 # ── Sync Stats ───────────────────────────────────────────────────────────────
 
 class SyncStats(BaseModel):
@@ -92,6 +113,7 @@ class SyncStats(BaseModel):
     skipped: int = 0
     errors: int = 0
     error_details: list[SyncError] = Field(default_factory=list)
+    conflicts: list[ConflictRecord] = Field(default_factory=list)
     max_priority_udate: str | None = None  # Highest UDATE seen in P→A run
     start_time: datetime | None = None
     end_time: datetime | None = None

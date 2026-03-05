@@ -25,7 +25,7 @@ import argparse
 import sys
 
 from sync.core.logger_setup import print_detail, setup_logging
-from sync.core.models import SyncDirection, SyncMode
+from sync.core.models import ConflictStrategy, SyncDirection, SyncMode
 
 
 # ── Workflow engine factories ────────────────────────────────────────────────
@@ -117,6 +117,17 @@ def main() -> int:
         default=None,
         help="Priority environment to target (default: uses PRIORITY_API_URL from .env).",
     )
+    parser.add_argument(
+        "--conflict-strategy",
+        choices=["source_wins", "log_only", "skip_record"],
+        default="source_wins",
+        help=(
+            "How to handle field-level conflicts when both systems changed a record. "
+            "'source_wins' (default): sync source overwrites. "
+            "'log_only': skip conflicting fields, log for manual resolution. "
+            "'skip_record': skip entire record if any conflict."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -162,8 +173,13 @@ def main() -> int:
             return 2
 
     try:
+        conflict_strategy = ConflictStrategy(args.conflict_strategy)
+
         engine_class = _get_engine_class(args.workflow)
-        engine = engine_class(
+
+        # Build kwargs — standalone engines (images, techsheets) don't accept
+        # conflict_strategy, so only pass it to engines that support it.
+        engine_kwargs: dict = dict(
             direction=SyncDirection(args.direction),
             dry_run=args.dry_run,
             single_key=args.sku,
@@ -174,6 +190,10 @@ def main() -> int:
             token_override=token_override,
             priority_url_override=priority_url_override,
         )
+        if args.workflow not in ("images", "techsheets"):
+            engine_kwargs["conflict_strategy"] = conflict_strategy
+
+        engine = engine_class(**engine_kwargs)
         stats = engine.run()
 
         print_detail(f"Log file: {log_file}")
