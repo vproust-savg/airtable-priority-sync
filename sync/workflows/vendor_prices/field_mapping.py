@@ -57,6 +57,9 @@ AIRTABLE_FIELDS_TO_FETCH: list[str] = [
     "Vendor SKU Trim",
     "Vendor Name (from Vendor)",
     "List Currency",
+    "Last Synced to Priority",
+    "Last Synced from Priority",
+    "Priority UDATE",
 ]
 
 AIRTABLE_FIELD_IDS: dict[str, str] = {
@@ -71,6 +74,9 @@ AIRTABLE_FIELD_IDS: dict[str, str] = {
     "Vendor SKU Trim": "fldWSE6ji1kvawbCZ",
     "Vendor Name (from Vendor)": "fldrPQSakqLRLM3Ve",
     "List Currency": "fldtbzcxVRFnQwVyp",
+    "Last Synced to Priority": "fldvrN7JezJRBpBji",
+    "Last Synced from Priority": "fldYVbGkksNW334cv",
+    "Priority UDATE": "fldR2LIZoT17zzHbi",
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -83,6 +89,9 @@ P2A_FIELD_MAP: list[FieldMapping] = []
 
 P2A_AIRTABLE_FIELDS_TO_FETCH: list[str] = [
     "Price List Code",
+    "Last Synced from Priority",
+    "Last Synced to Priority",
+    "Priority UDATE",
 ]
 
 P2A_PRIORITY_SELECT: list[str] = ["PLNAME", "UDATE"]
