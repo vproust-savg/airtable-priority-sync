@@ -603,6 +603,11 @@ class BaseSyncEngine(abc.ABC):
             )
 
             if result.action in (SyncAction.CREATE, SyncAction.UPDATE, SyncAction.SKIP):
+                # Post comment if main entity changed OR any sub-form changed
+                has_subform_activity = any(
+                    sf.action in ("created", "updated", "synced", "error")
+                    for sf in result.subform_results
+                )
                 timestamp_updates.append({
                     "record_id": result.airtable_record_id,
                     "synced_at": now_utc,
@@ -610,7 +615,7 @@ class BaseSyncEngine(abc.ABC):
                     "sync_comment": comment,
                     "_post_comment": result.action in (
                         SyncAction.CREATE, SyncAction.UPDATE,
-                    ),
+                    ) or has_subform_activity,
                 })
             elif result.action == SyncAction.ERROR and result.airtable_record_id:
                 # Write error to Sync Comments but don't update the sync timestamp
@@ -659,23 +664,36 @@ class BaseSyncEngine(abc.ABC):
         field_name_map: dict[str, str] | None = None,
     ) -> str:
         """Compose a human-readable sync comment for the Airtable record."""
+        # Build sub-form summary (only non-skipped results)
+        subform_parts: list[str] = []
+        for sf in result.subform_results:
+            if sf.action in ("created", "updated", "synced"):
+                subform_parts.append(f"{sf.subform}: {sf.action}")
+            elif sf.action == "error":
+                subform_parts.append(f"{sf.subform}: ERROR")
+        subform_line = ""
+        if subform_parts:
+            subform_line = "\nSub-forms: " + ", ".join(subform_parts)
+
         if result.action == SyncAction.CREATE:
-            return f"{direction}: Created in Priority ({timestamp})"
+            return f"{direction}: Created in Priority ({timestamp}){subform_line}"
         elif result.action == SyncAction.UPDATE:
             changed = result.fields_changed
             if field_name_map:
                 changed = [field_name_map.get(f, f) for f in changed]
             short = ", ".join(changed[:5])
             suffix = f" +{len(changed) - 5} more" if len(changed) > 5 else ""
-            return f"{direction}: Updated {short}{suffix} ({timestamp})"
+            return f"{direction}: Updated {short}{suffix} ({timestamp}){subform_line}"
         elif result.action == SyncAction.SKIP:
             if result.error_message:
-                return f"{direction}: Skipped — {result.error_message} ({timestamp})"
+                return f"{direction}: Skipped — {result.error_message} ({timestamp}){subform_line}"
+            if subform_line:
+                return f"{direction}: No field changes ({timestamp}){subform_line}"
             return f"{direction}: No changes ({timestamp})"
         elif result.action == SyncAction.ERROR:
             msg = result.error_message[:80] if result.error_message else "unknown"
-            return f"{direction}: ERROR — {msg} ({timestamp})"
-        return f"{direction}: {result.action.value} ({timestamp})"
+            return f"{direction}: ERROR — {msg} ({timestamp}){subform_line}"
+        return f"{direction}: {result.action.value} ({timestamp}){subform_line}"
 
     # ── Single record processing (A->P) ──────────────────────────────────
 

@@ -200,7 +200,8 @@ def map_price_lists(airtable_fields: dict[str, Any]) -> list[dict[str, Any]]:
     """
     shared = PRICE_LIST_SHARED_FIELDS
     code_val = clean(airtable_fields.get(shared["code_field"])) or "$"
-    quant_val = clean(airtable_fields.get(shared["quant_field"])) or "1"
+    quant_raw = to_int(airtable_fields.get(shared["quant_field"]))
+    quant_val: int = quant_raw if quant_raw is not None else 1
     unit_val = clean(airtable_fields.get(shared["unit_field"]))
 
     payloads: list[dict[str, Any]] = []
