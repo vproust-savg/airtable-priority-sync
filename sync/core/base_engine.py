@@ -581,6 +581,10 @@ class BaseSyncEngine(abc.ABC):
         sync_results: list[SyncRecord] = []
         timestamp_updates: list[dict[str, Any]] = []
 
+        # Build reverse mapping: Priority field → Airtable field (for comments)
+        _field_map = self._get_a2p_field_map(self.mode)
+        _p2a_names = {m.priority_field: m.airtable_field for m in _field_map}
+
         for idx, record in enumerate(airtable_records, 1):
             result = self._process_record(
                 record=record,
@@ -594,7 +598,9 @@ class BaseSyncEngine(abc.ABC):
             # Queue timestamp update for successful syncs and skips
             now_utc = datetime.now(timezone.utc).isoformat()
             now_short = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
-            comment = self._compose_sync_comment(result, "A→P", now_short)
+            comment = self._compose_sync_comment(
+                result, "A→P", now_short, field_name_map=_p2a_names,
+            )
 
             if result.action in (SyncAction.CREATE, SyncAction.UPDATE, SyncAction.SKIP):
                 timestamp_updates.append({
@@ -650,12 +656,15 @@ class BaseSyncEngine(abc.ABC):
         result: SyncRecord,
         direction: str,
         timestamp: str,
+        field_name_map: dict[str, str] | None = None,
     ) -> str:
         """Compose a human-readable sync comment for the Airtable record."""
         if result.action == SyncAction.CREATE:
             return f"{direction}: Created in Priority ({timestamp})"
         elif result.action == SyncAction.UPDATE:
             changed = result.fields_changed
+            if field_name_map:
+                changed = [field_name_map.get(f, f) for f in changed]
             short = ", ".join(changed[:5])
             suffix = f" +{len(changed) - 5} more" if len(changed) > 5 else ""
             return f"{direction}: Updated {short}{suffix} ({timestamp})"
