@@ -32,6 +32,7 @@ from sync.core.models import FieldMapping, SubformResult, SyncError, SyncMode, S
 from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
 from sync.core.utils import clean
+from sync.core.base_engine import map_airtable_to_priority
 from sync.workflows.products.config import (
     AIRTABLE_FIELD_SKU,
     AIRTABLE_FIELD_SKU_WRITABLE,
@@ -40,17 +41,23 @@ from sync.workflows.products.config import (
     AIRTABLE_SHELF_LIVES_VIEW,
     AIRTABLE_SYNC_VIEW,
     PRIORITY_ENTITY,
+    PRIORITY_FNCPART_ENTITY,
     PRIORITY_KEY_FIELD,
+    PRIORITY_PRDPART_ENTITY,
     TIMESTAMP_FIELDS,
 )
 from sync.workflows.products.field_mapping import (
     AIRTABLE_FIELDS_TO_FETCH,
+    FNCPART_A2P_FIELD_MAP,
+    FNCPART_P2A_FIELD_MAP,
     P2A_AIRTABLE_FIELDS_TO_FETCH,
     P2A_FIELD_MAP,
     P2A_PRIORITY_SELECT,
     P2A_STATUS_AIRTABLE_FIELDS,
     P2A_STATUS_FIELD_MAP,
     P2A_STATUS_PRIORITY_SELECT,
+    PRDPART_A2P_FIELD_MAP,
+    PRDPART_P2A_FIELD_MAP,
     PRODUCT_FIELD_MAP,
     STATUS_FIELD_MAP,
     STATUS_FIELDS_TO_FETCH,
@@ -73,14 +80,31 @@ logger = logging.getLogger(__name__)
 
 class ProductSyncEngine(BaseSyncEngine):
     """
-    Concrete sync engine for products (LOGPART).
+    Concrete sync engine for products (LOGPART + FNCPART + PRDPART).
 
     Extends BaseSyncEngine with:
     - Product-specific field mappings (full + status-only, both directions)
     - Sub-form sync (allergens, shelf lives, price lists, bins) for A->P
+    - Secondary entity sync (FNCPART, PRDPART) for A->P and P->A
     - Shelf-life pre-fetch from a separate Airtable table
-    - Allergen fetch from Priority sub-form for P->A
+    - Allergen + FNCPART + PRDPART fetch from Priority for P->A
     """
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        # Secondary Priority clients (FNCPART, PRDPART)
+        self.priority_fncpart = PriorityClient(
+            entity=PRIORITY_FNCPART_ENTITY,
+            key_field=PRIORITY_KEY_FIELD,
+            use_filter_lookup=True,
+            api_url_override=self.priority_url_override,
+        )
+        self.priority_prdpart = PriorityClient(
+            entity=PRIORITY_PRDPART_ENTITY,
+            key_field=PRIORITY_KEY_FIELD,
+            use_filter_lookup=True,
+            api_url_override=self.priority_url_override,
+        )
 
     # ── Abstract method implementations: client factories ────────────────
 
@@ -256,6 +280,82 @@ class ProductSyncEngine(BaseSyncEngine):
         # 4. Bin Locations (single-record sub-form, deep PATCH)
         self._sync_bins(key, airtable_fields, result)
 
+        # 5. FNCPART (Financial Parameters — secondary entity)
+        self._sync_secondary_entity(
+            self.priority_fncpart, key, airtable_fields, result,
+            FNCPART_A2P_FIELD_MAP, "fncpart",
+        )
+
+        # 6. PRDPART (MRP Parameters — secondary entity)
+        self._sync_secondary_entity(
+            self.priority_prdpart, key, airtable_fields, result,
+            PRDPART_A2P_FIELD_MAP, "prdpart",
+        )
+
+    def _sync_secondary_entity(
+        self,
+        client: PriorityClient,
+        key: str,
+        airtable_fields: dict[str, Any],
+        result: SyncRecord,
+        field_map: list[FieldMapping],
+        label: str,
+    ) -> None:
+        """
+        Sync fields to a secondary Priority entity (FNCPART, PRDPART, etc.).
+
+        Secondary entities are auto-created by Priority when the parent entity
+        is created — so this only does UPDATE (PATCH), never CREATE.
+        Errors are isolated and don't fail the main sync.
+        """
+        try:
+            payload = map_airtable_to_priority(airtable_fields, field_map=field_map)
+            # Remove the key field — it's for lookup only, not for patching
+            payload.pop(client.key_field, None)
+            if not payload:
+                return
+
+            existing = client.get_record(key)
+            if not existing:
+                result.subform_results.append(SubformResult(
+                    subform=label,
+                    action="skipped",
+                    detail="not found in Priority",
+                ))
+                return
+
+            # Build diff — only changed fields
+            patch: dict[str, Any] = {}
+            for k, v in payload.items():
+                current = existing.get(k)
+                if str(current) != str(v):
+                    patch[k] = v
+
+            if not patch:
+                return  # No changes — silently skip
+
+            client.update_record(key, patch)
+            result.subform_results.append(SubformResult(
+                subform=label,
+                action="updated",
+                detail=f"{len(patch)} fields",
+            ))
+            logger.debug("%s for %s: updated %d fields", label.upper(), key, len(patch))
+
+        except Exception as e:
+            logger.error("%s sync error for %s: %s", label.upper(), key, e)
+            result.subform_results.append(SubformResult(
+                subform=label,
+                action="error",
+                detail=str(e)[:100],
+            ))
+            self.stats.error_details.append(SyncError(
+                entity_key=key,
+                action="SECONDARY",
+                message=f"{label}: {e}",
+                timestamp=datetime.now(timezone.utc),
+            ))
+
     def _get_p2a_extra_fields(
         self,
         key: str,
@@ -263,22 +363,51 @@ class ProductSyncEngine(BaseSyncEngine):
         is_status: bool,
     ) -> dict[str, Any]:
         """
-        Fetch allergens from Priority for P->A direction (full mode only).
+        Fetch extra fields from Priority for P->A direction (full mode only).
 
-        Makes one API call per product to get SAVR_ALLERGENS_SUBFORM data,
-        then maps it to Airtable field names using the reverse allergen mapper.
+        Sources:
+        1. Allergens sub-form (SAVR_ALLERGENS_SUBFORM)
+        2. FNCPART (Financial Parameters) — secondary entity
+        3. PRDPART (MRP Parameters) — secondary entity
         """
         if is_status:
             return {}
 
+        extra: dict[str, Any] = {}
+
+        # 1. Allergens sub-form
         try:
             allergen_data = self.priority.get_subform(key, ALLERGEN_SUBFORM_NAME)
             if allergen_data:
-                return map_allergens_to_airtable(allergen_data[0])
+                extra.update(map_allergens_to_airtable(allergen_data[0]))
         except Exception as e:
             logger.warning("Failed to fetch allergens for %s: %s", key, e)
 
-        return {}
+        # 2. FNCPART fields → Airtable
+        try:
+            fncpart_data = self.priority_fncpart.get_record(key)
+            if fncpart_data:
+                from sync.core.base_engine import map_priority_to_airtable
+                fncpart_mapped = map_priority_to_airtable(
+                    fncpart_data, FNCPART_P2A_FIELD_MAP, is_create=False,
+                )
+                extra.update(fncpart_mapped)
+        except Exception as e:
+            logger.warning("Failed to fetch FNCPART for %s: %s", key, e)
+
+        # 3. PRDPART fields → Airtable
+        try:
+            prdpart_data = self.priority_prdpart.get_record(key)
+            if prdpart_data:
+                from sync.core.base_engine import map_priority_to_airtable
+                prdpart_mapped = map_priority_to_airtable(
+                    prdpart_data, PRDPART_P2A_FIELD_MAP, is_create=False,
+                )
+                extra.update(prdpart_mapped)
+        except Exception as e:
+            logger.warning("Failed to fetch PRDPART for %s: %s", key, e)
+
+        return extra
 
     # ── Shelf lives fetch (product-specific, separate Airtable table) ────
 

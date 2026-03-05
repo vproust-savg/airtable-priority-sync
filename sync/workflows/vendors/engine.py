@@ -1,16 +1,20 @@
 """
-Vendors All sync engine: SUPPLIERS + 3 sub-forms (contacts, parts, sites).
+Vendors sync engine: SUPPLIERS + FNCSUP + sub-forms.
 
 Subclasses BaseSyncEngine with SUPPLIERS-specific configuration.
-Handles 3 sub-forms sourced from separate Airtable tables:
+Merged workflow syncs both SUPPLIERS (main entity) and FNCSUP (secondary entity).
+
+Handles 3 sub-forms on SUPPLIERS + 1 on FNCSUP:
   - Vendor Contacts  → SUPPERSONNEL_SUBFORM
   - Vendor Products  → SUPPART_SUBFORM
   - Vendor Sites     → SUPDESTCODES_SUBFORM
+  - Bank Accounts    → ACCOUNTBANK_SUBFORM (on FNCSUP)
   - Vendor Remarks   → SUPPLIERSTEXT_SUBFORM (NOT accessible via API — 404)
 
 Multi-table architecture:
   - Main vendor data comes from the "Vendors" table via the sync view.
   - Sub-form data comes from 3 separate Airtable tables fetched in _pre_a2p_batch.
+  - Bank account data comes from a secondary view on the same Vendors table.
   - P→A is limited — many Airtable fields are formulas or AI-generated (aiText).
 """
 
@@ -18,23 +22,26 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
 
 import requests
 
 from sync.core.airtable_client import AirtableClient
-from sync.core.base_engine import BaseSyncEngine
+from sync.core.base_engine import BaseSyncEngine, map_airtable_to_priority
 from sync.core.config import (
     AIRTABLE_API_BASE,
     AIRTABLE_MAX_RETRIES,
     AIRTABLE_REQUEST_TIMEOUT,
 )
-from sync.core.models import FieldMapping, SubformResult, SyncMode, SyncRecord
+from sync.core.models import FieldMapping, SubformResult, SyncError, SyncMode, SyncRecord
 from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
 from sync.core.utils import clean
 from sync.workflows.vendors.config import (
+    ACCOUNTBANK_SUBFORM_NAME,
+    AIRTABLE_BANK_VIEW,
     AIRTABLE_CONTACTS_TABLE_ID,
     AIRTABLE_CONTACTS_VIEW,
     AIRTABLE_KEY_FIELD,
@@ -48,6 +55,7 @@ from sync.workflows.vendors.config import (
     CONTACTS_SUBFORM_NAME,
     PARTS_SUBFORM_NAME,
     PRIORITY_ENTITY,
+    PRIORITY_FNCSUP_ENTITY,
     PRIORITY_KEY_FIELD,
     SITES_SUBFORM_NAME,
     TIMESTAMP_FIELDS,
@@ -55,6 +63,10 @@ from sync.workflows.vendors.config import (
 from sync.workflows.vendors.field_mapping import (
     A2P_FIELD_MAP,
     AIRTABLE_FIELDS_TO_FETCH,
+    FNCSUP_A2P_FIELD_MAP,
+    FNCSUP_BANK_A2P_FIELD_MAP,
+    FNCSUP_BANK_P2A_FIELD_MAP,
+    FNCSUP_P2A_FIELD_MAP,
     P2A_AIRTABLE_FIELDS_TO_FETCH,
     P2A_FIELD_MAP,
     P2A_PRIORITY_SELECT,
@@ -76,16 +88,31 @@ logger = logging.getLogger(__name__)
 
 class VendorSyncEngine(BaseSyncEngine):
     """
-    Sync engine for SUPPLIERS (Vendors All).
+    Sync engine for Vendors (SUPPLIERS + FNCSUP).
+
+    Merged workflow syncs:
+      - SUPPLIERS (main entity) with 3 sub-forms
+      - FNCSUP (secondary entity — financial parameters) with bank sub-form
 
     Multi-table architecture:
       - Main fields from Vendors table
       - Contacts from Vendor Contacts table → SUPPERSONNEL_SUBFORM
       - Products from Vendor Products table → SUPPART_SUBFORM
       - Sites from Vendor Sites table → SUPDESTCODES_SUBFORM
+      - Bank details from Vendors table (secondary view) → ACCOUNTBANK_SUBFORM
 
     Uses standard string keys (SUPPLIERS('2993') works directly).
     """
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        # Secondary Priority client: FNCSUP (Financial Parameters for Vendors)
+        self.priority_fncsup = PriorityClient(
+            entity=PRIORITY_FNCSUP_ENTITY,
+            key_field=PRIORITY_KEY_FIELD,
+            api_url_override=self.priority_url_override,
+            # FNCSUP uses string keys — standard URL access
+        )
 
     # ── Client factories ─────────────────────────────────────────────────
 
@@ -149,10 +176,11 @@ class VendorSyncEngine(BaseSyncEngine):
         self, records: list[dict[str, Any]]
     ) -> dict[str, Any]:
         """
-        Pre-fetch sub-form data from 3 separate Airtable tables:
+        Pre-fetch sub-form data from 3 separate Airtable tables + bank view:
           - Vendor Contacts
           - Vendor Products
           - Vendor Sites
+          - Bank Account Details (same Vendors table, different view)
 
         Returns a context dict with each indexed by vendor ID.
         """
@@ -200,6 +228,22 @@ class VendorSyncEngine(BaseSyncEngine):
         logger.info("Loaded sites for %d vendors.", len(sites_by_vendor))
         context["sites_by_vendor"] = sites_by_vendor
 
+        # Bank account details (same Vendors table, different view — for FNCSUP sub-form)
+        logger.info("Pre-fetching bank account details from '%s'...", AIRTABLE_BANK_VIEW)
+        from sync.workflows.fncsup.field_mapping import BANK_AIRTABLE_FIELDS
+        bank_records = self.airtable.fetch_records_from_view(
+            view_name=AIRTABLE_BANK_VIEW,
+            fields=BANK_AIRTABLE_FIELDS,
+        )
+        bank_by_vendor: dict[str, dict[str, Any]] = {}
+        for rec in bank_records:
+            fields = rec.get("fields", {})
+            vendor_id = clean(fields.get("Priority Vendor ID"))
+            if vendor_id:
+                bank_by_vendor[vendor_id] = fields
+        logger.info("Found bank details for %d vendors.", len(bank_by_vendor))
+        context["bank_by_vendor"] = bank_by_vendor
+
         return context
 
     def _sync_subforms(
@@ -211,11 +255,13 @@ class VendorSyncEngine(BaseSyncEngine):
         dry_run: bool,
     ) -> None:
         """
-        Sync 3 sub-forms for a vendor after main SUPPLIERS sync.
+        Sync sub-forms + secondary entity for a vendor after main SUPPLIERS sync.
 
         1. Contacts → SUPPERSONNEL_SUBFORM (deep PATCH)
         2. Products → SUPPART_SUBFORM (deep PATCH)
         3. Sites → SUPDESTCODES_SUBFORM (deep PATCH)
+        4. FNCSUP (Financial Parameters — secondary entity)
+        5. Bank Accounts → ACCOUNTBANK_SUBFORM on FNCSUP (deep PATCH)
         """
         # 1. Contacts
         contacts = context.get("contacts_by_vendor", {}).get(key, [])
@@ -255,6 +301,16 @@ class VendorSyncEngine(BaseSyncEngine):
             dry_run=dry_run,
             label="sites",
         )
+
+        # 4. FNCSUP (Financial Parameters — secondary entity)
+        if not dry_run:
+            self._sync_secondary_entity(
+                self.priority_fncsup, key, airtable_fields, result,
+                FNCSUP_A2P_FIELD_MAP, "fncsup",
+            )
+
+        # 5. Bank Accounts → ACCOUNTBANK_SUBFORM on FNCSUP
+        self._sync_bank_subform(key, context, result, dry_run)
 
     # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -422,3 +478,183 @@ class VendorSyncEngine(BaseSyncEngine):
                 return None
             value = value[0]
         return clean(value)
+
+    # ── Secondary entity sync (FNCSUP) ────────────────────────────────────
+
+    def _sync_secondary_entity(
+        self,
+        client: PriorityClient,
+        key: str,
+        airtable_fields: dict[str, Any],
+        result: SyncRecord,
+        field_map: list[FieldMapping],
+        label: str,
+    ) -> None:
+        """
+        Sync fields to a secondary Priority entity (FNCSUP).
+
+        Secondary entities are auto-created by Priority when the parent entity
+        is created — so this only does UPDATE (PATCH), never CREATE.
+        Errors are isolated and don't fail the main sync.
+        """
+        try:
+            payload = map_airtable_to_priority(airtable_fields, field_map=field_map)
+            # Remove the key field — it's for lookup only, not for patching
+            payload.pop(client.key_field, None)
+            if not payload:
+                return
+
+            existing = client.get_record(key)
+            if not existing:
+                result.subform_results.append(SubformResult(
+                    subform=label,
+                    action="skipped",
+                    detail="not found in Priority",
+                ))
+                return
+
+            # Build diff — only changed fields
+            patch: dict[str, Any] = {}
+            for k, v in payload.items():
+                current = existing.get(k)
+                if str(current) != str(v):
+                    patch[k] = v
+
+            if not patch:
+                return  # No changes — silently skip
+
+            client.update_record(key, patch)
+            result.subform_results.append(SubformResult(
+                subform=label,
+                action="updated",
+                detail=f"{len(patch)} fields",
+            ))
+            logger.debug("%s for %s: updated %d fields", label.upper(), key, len(patch))
+
+        except Exception as e:
+            logger.error("%s sync error for %s: %s", label.upper(), key, e)
+            result.subform_results.append(SubformResult(
+                subform=label,
+                action="error",
+                detail=str(e)[:100],
+            ))
+            self.stats.error_details.append(SyncError(
+                entity_key=key,
+                action="SECONDARY",
+                message=f"{label}: {e}",
+                timestamp=datetime.now(timezone.utc),
+            ))
+
+    # ── Bank account sub-form (on FNCSUP) ─────────────────────────────────
+
+    def _sync_bank_subform(
+        self,
+        key: str,
+        context: dict[str, Any],
+        result: SyncRecord,
+        dry_run: bool,
+    ) -> None:
+        """
+        Sync bank account details to ACCOUNTBANK_SUBFORM on FNCSUP.
+        Bank data is pre-fetched from a secondary Airtable view in _pre_a2p_batch.
+        """
+        bank_by_vendor = context.get("bank_by_vendor", {})
+        bank_fields = bank_by_vendor.get(key)
+
+        if not bank_fields:
+            logger.debug("No bank details found for vendor %s, skipping ACCOUNTBANK.", key)
+            return
+
+        # Build the bank payload from Airtable fields
+        bank_payload: dict[str, Any] = {}
+        for mapping in FNCSUP_BANK_A2P_FIELD_MAP:
+            raw_value = bank_fields.get(mapping.airtable_field)
+            cleaned = clean(raw_value)
+            if cleaned:
+                bank_payload[mapping.priority_field] = cleaned
+
+        if not bank_payload:
+            logger.debug("No bank data to sync for vendor %s.", key)
+            return
+
+        if dry_run:
+            result.subform_results.append(
+                SubformResult(
+                    subform=ACCOUNTBANK_SUBFORM_NAME,
+                    action="DRY_RUN",
+                    detail=f"Would sync bank: {bank_payload}",
+                )
+            )
+            return
+
+        try:
+            self.priority_fncsup.deep_patch_subform(
+                key_value=key,
+                subform_name=ACCOUNTBANK_SUBFORM_NAME,
+                records=[bank_payload],
+            )
+            result.subform_results.append(
+                SubformResult(
+                    subform=ACCOUNTBANK_SUBFORM_NAME,
+                    action="updated",
+                    detail=f"Bank details synced: {list(bank_payload.keys())}",
+                )
+            )
+        except Exception as e:
+            logger.error("Failed to sync bank for vendor %s: %s", key, e)
+            result.subform_results.append(
+                SubformResult(
+                    subform=ACCOUNTBANK_SUBFORM_NAME,
+                    action="error",
+                    detail=str(e)[:100],
+                )
+            )
+
+    # ── P→A extra fields (FNCSUP + bank) ──────────────────────────────────
+
+    def _get_p2a_extra_fields(
+        self,
+        key: str,
+        priority_record: dict[str, Any],
+        is_status: bool,
+    ) -> dict[str, Any]:
+        """
+        Fetch extra fields from Priority for P→A direction (full mode only).
+
+        Sources:
+        1. FNCSUP (Financial Parameters) — secondary entity
+        2. Bank account details (ACCOUNTBANK_SUBFORM on FNCSUP)
+        """
+        if is_status:
+            return {}
+
+        extra: dict[str, Any] = {}
+
+        # 1. FNCSUP fields → Airtable
+        try:
+            fncsup_data = self.priority_fncsup.get_record(key)
+            if fncsup_data:
+                from sync.core.base_engine import map_priority_to_airtable
+                fncsup_mapped = map_priority_to_airtable(
+                    fncsup_data, FNCSUP_P2A_FIELD_MAP, is_create=False,
+                )
+                extra.update(fncsup_mapped)
+        except Exception as e:
+            logger.warning("Failed to fetch FNCSUP for %s: %s", key, e)
+
+        # 2. Bank account details from ACCOUNTBANK_SUBFORM
+        try:
+            bank_records = self.priority_fncsup.get_subform(key, ACCOUNTBANK_SUBFORM_NAME)
+            if bank_records:
+                # Use first bank record (vendors typically have one bank account)
+                bank_record = bank_records[0]
+                for mapping in FNCSUP_BANK_P2A_FIELD_MAP:
+                    value = bank_record.get(mapping.priority_field)
+                    if value:
+                        cleaned = clean(value)
+                        if cleaned:
+                            extra[mapping.airtable_field] = cleaned
+        except Exception as e:
+            logger.warning("Failed to fetch bank details for %s: %s", key, e)
+
+        return extra

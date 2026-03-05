@@ -27,9 +27,12 @@ AIRTABLE_FIELD_LAST_SYNCED = "Last Synced to Priority"
 AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY = "Last Synced from Priority"
 AIRTABLE_FIELD_PRIORITY_UDATE = "Priority UDATE"
 
-# ── Priority entity ─────────────────────────────────────────────────────────
+# ── Priority entities ────────────────────────────────────────────────────────
 PRIORITY_ENTITY = "CUSTOMERS"
 PRIORITY_KEY_FIELD = "CUSTNAME"
+
+# Secondary entity: FNCCUST (Financial Parameters for Customers)
+PRIORITY_FNCCUST_ENTITY = "FNCCUST"
 
 # Sub-form names
 CONTACTS_SUBFORM_NAME = "CUSTPERSONNEL_SUBFORM"

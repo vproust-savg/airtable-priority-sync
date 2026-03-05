@@ -13,6 +13,15 @@ from __future__ import annotations
 
 from sync.core.models import FieldMapping
 
+# ── FNCSUP field maps (imported for merged workflow) ─────────────────────────
+from sync.workflows.fncsup.field_mapping import (
+    A2P_FIELD_MAP as FNCSUP_A2P_FIELD_MAP,
+    BANK_A2P_FIELD_MAP as FNCSUP_BANK_A2P_FIELD_MAP,
+    BANK_AIRTABLE_FIELDS as FNCSUP_BANK_AIRTABLE_FIELDS,
+    BANK_P2A_FIELD_MAP as FNCSUP_BANK_P2A_FIELD_MAP,
+    P2A_FIELD_MAP as FNCSUP_P2A_FIELD_MAP,
+)
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # A→P (Airtable → Priority) field mapping — Main SUPPLIERS entity
@@ -209,6 +218,10 @@ P2A_FIELD_MAP: list[FieldMapping] = [
 
 AIRTABLE_FIELDS_TO_FETCH: list[str] = (
     [m.airtable_field for m in A2P_FIELD_MAP]
+    # ── FNCSUP fields (Account No, FDA Reg, VAT Code, Max Tax Code, etc.) ──
+    + [m.airtable_field for m in FNCSUP_A2P_FIELD_MAP
+       if m.airtable_field not in {"Priority Vendor ID", "Last Synced to Priority",
+                                    "Last Synced from Priority", "Priority UDATE"}]
     + [
         "Last Synced to Priority",
         "Last Synced from Priority",
@@ -220,6 +233,8 @@ AIRTABLE_FIELDS_TO_FETCH: list[str] = (
 
 P2A_AIRTABLE_FIELDS_TO_FETCH: list[str] = (
     [m.airtable_field for m in P2A_FIELD_MAP]
+    + [m.airtable_field for m in FNCSUP_P2A_FIELD_MAP]
+    + [m.airtable_field for m in FNCSUP_BANK_P2A_FIELD_MAP]
     + [
         "Priority Vendor ID",
         "Last Synced from Priority",

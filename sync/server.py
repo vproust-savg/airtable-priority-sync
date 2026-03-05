@@ -4,6 +4,15 @@ FastAPI webhook server for triggering sync workflows.
 Per-workflow routing with independent locks so different workflows
 can run simultaneously.
 
+7 workflows (merged from 11):
+  products        (LOGPART + FNCPART + PRDPART)
+  vendors         (SUPPLIERS + FNCSUP)
+  vendor-prices   (PRICELIST)
+  customers       (CUSTOMERS + FNCCUST)
+  customer-prices (PRICELIST)
+  images          (LOGPART, A→P only)
+  techsheets      (LOGPART, A→P only)
+
 Environment switching:
   Add ?env=sandbox or ?env=uat to any endpoint to target a specific
   Priority environment. Default (no env param) uses PRIORITY_API_URL from .env.
@@ -67,25 +76,17 @@ def _lazy_register_workflows() -> None:
         return  # Already registered
 
     from sync.workflows.products.engine import ProductSyncEngine
-    from sync.workflows.fncpart.engine import FncpartSyncEngine
-    from sync.workflows.prdpart.engine import PrdpartSyncEngine
     from sync.workflows.vendors.engine import VendorSyncEngine
-    from sync.workflows.fncsup.engine import FncsupSyncEngine
     from sync.workflows.vendor_prices.engine import VendorPriceSyncEngine
     from sync.workflows.customers.engine import CustomerSyncEngine
-    from sync.workflows.fnccust.engine import FnccustSyncEngine
     from sync.workflows.customer_prices.engine import CustomerPriceSyncEngine
     from sync.workflows.images.engine import ImageSyncEngine
     from sync.workflows.techsheets.engine import TechSheetSyncEngine
 
     _register_workflow("products", ProductSyncEngine, has_status_mode=True)
-    _register_workflow("fncpart", FncpartSyncEngine, has_status_mode=False)
-    _register_workflow("prdpart", PrdpartSyncEngine, has_status_mode=False)
     _register_workflow("vendors", VendorSyncEngine, has_status_mode=False)
-    _register_workflow("fncsup", FncsupSyncEngine, has_status_mode=False)
     _register_workflow("vendor-prices", VendorPriceSyncEngine, has_status_mode=False)
     _register_workflow("customers", CustomerSyncEngine, has_status_mode=False)
-    _register_workflow("fnccust", FnccustSyncEngine, has_status_mode=False)
     _register_workflow("customer-prices", CustomerPriceSyncEngine, has_status_mode=False)
     _register_workflow("images", ImageSyncEngine, has_status_mode=False)
     _register_workflow("techsheets", TechSheetSyncEngine, has_status_mode=False)
@@ -303,46 +304,6 @@ def products_sync_from_priority_status(
     )
 
 
-# ── FNCPART ───────────────────────────────────────────────────────────────────
-
-@app.get("/webhook/fncpart/sync", status_code=202)
-def fncpart_sync(
-    background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
-) -> dict[str, str]:
-    """A→P full sync for financial parameters (parts)."""
-    _verify_query_key(key)
-    return _start_workflow("fncpart", background_tasks, priority_url_override=_resolve_priority_env(env))
-
-
-@app.get("/webhook/fncpart/sync-from-priority", status_code=202)
-def fncpart_sync_from_priority(
-    background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
-) -> dict[str, str]:
-    """P→A full sync for financial parameters (parts)."""
-    _verify_query_key(key)
-    return _start_workflow("fncpart", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env))
-
-
-# ── PRDPART ──────────────────────────────────────────────────────────────────
-
-@app.get("/webhook/prdpart/sync", status_code=202)
-def prdpart_sync(
-    background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
-) -> dict[str, str]:
-    """A→P full sync for MRP parameters (parts)."""
-    _verify_query_key(key)
-    return _start_workflow("prdpart", background_tasks, priority_url_override=_resolve_priority_env(env))
-
-
-@app.get("/webhook/prdpart/sync-from-priority", status_code=202)
-def prdpart_sync_from_priority(
-    background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
-) -> dict[str, str]:
-    """P→A full sync for MRP parameters (parts)."""
-    _verify_query_key(key)
-    return _start_workflow("prdpart", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env))
-
-
 # ── Vendors ──────────────────────────────────────────────────────────────────
 
 @app.get("/webhook/vendors/sync", status_code=202)
@@ -361,26 +322,6 @@ def vendors_sync_from_priority(
     """P→A full sync for vendors (all)."""
     _verify_query_key(key)
     return _start_workflow("vendors", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env))
-
-
-# ── FNCSUP ───────────────────────────────────────────────────────────────────
-
-@app.get("/webhook/fncsup/sync", status_code=202)
-def fncsup_sync(
-    background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
-) -> dict[str, str]:
-    """A→P full sync for financial parameters (vendors)."""
-    _verify_query_key(key)
-    return _start_workflow("fncsup", background_tasks, priority_url_override=_resolve_priority_env(env))
-
-
-@app.get("/webhook/fncsup/sync-from-priority", status_code=202)
-def fncsup_sync_from_priority(
-    background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
-) -> dict[str, str]:
-    """P→A full sync for financial parameters (vendors)."""
-    _verify_query_key(key)
-    return _start_workflow("fncsup", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env))
 
 
 # ── Vendor Price Lists ───────────────────────────────────────────────────────
@@ -421,26 +362,6 @@ def customers_sync_from_priority(
     """P→A full sync for customers (all)."""
     _verify_query_key(key)
     return _start_workflow("customers", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env))
-
-
-# ── FNCCUST ──────────────────────────────────────────────────────────────────
-
-@app.get("/webhook/fnccust/sync", status_code=202)
-def fnccust_sync(
-    background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
-) -> dict[str, str]:
-    """A→P full sync for financial parameters (customers)."""
-    _verify_query_key(key)
-    return _start_workflow("fnccust", background_tasks, priority_url_override=_resolve_priority_env(env))
-
-
-@app.get("/webhook/fnccust/sync-from-priority", status_code=202)
-def fnccust_sync_from_priority(
-    background_tasks: BackgroundTasks, key: str | None = None, env: str | None = None,
-) -> dict[str, str]:
-    """P→A full sync for financial parameters (customers)."""
-    _verify_query_key(key)
-    return _start_workflow("fnccust", background_tasks, direction=SyncDirection.PRIORITY_TO_AIRTABLE, priority_url_override=_resolve_priority_env(env))
 
 
 # ── Customer Price Lists ─────────────────────────────────────────────────────

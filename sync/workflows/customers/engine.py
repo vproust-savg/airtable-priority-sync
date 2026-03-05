@@ -1,7 +1,9 @@
 """
-Customers All sync engine: CUSTOMERS + 5 sub-forms.
+Customers sync engine: CUSTOMERS + FNCCUST + sub-forms.
 
 Subclasses BaseSyncEngine with CUSTOMERS-specific configuration.
+Merged workflow syncs both CUSTOMERS (main entity) and FNCCUST (secondary entity).
+
 Handles 5 accessible sub-forms from 4 Airtable tables:
   - Customer Contacts  → CUSTPERSONNEL_SUBFORM (separate table)
   - Customer Sites     → CUSTDESTS_SUBFORM (separate table)
@@ -19,18 +21,19 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
 
 from sync.core.airtable_client import AirtableClient
-from sync.core.base_engine import BaseSyncEngine
+from sync.core.base_engine import BaseSyncEngine, map_airtable_to_priority
 from sync.core.config import (
     AIRTABLE_API_BASE,
     AIRTABLE_MAX_RETRIES,
     AIRTABLE_REQUEST_TIMEOUT,
 )
-from sync.core.models import FieldMapping, SubformResult, SyncMode, SyncRecord
+from sync.core.models import FieldMapping, SubformResult, SyncError, SyncMode, SyncRecord
 from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
 from sync.core.utils import abbreviate_day, clean, format_time_24h
@@ -50,6 +53,7 @@ from sync.workflows.customers.config import (
     CONTACTS_SUBFORM_NAME,
     PRICE_LIST_SUBFORM_NAME,
     PRIORITY_ENTITY,
+    PRIORITY_FNCCUST_ENTITY,
     PRIORITY_KEY_FIELD,
     SITES_SUBFORM_NAME,
     SPECIAL_PRICES_SUBFORM_NAME,
@@ -59,6 +63,8 @@ from sync.workflows.customers.config import (
 from sync.workflows.customers.field_mapping import (
     A2P_FIELD_MAP,
     AIRTABLE_FIELDS_TO_FETCH,
+    FNCCUST_A2P_FIELD_MAP,
+    FNCCUST_P2A_FIELD_MAP,
     P2A_AIRTABLE_FIELDS_TO_FETCH,
     P2A_FIELD_MAP,
     P2A_PRIORITY_SELECT,
@@ -83,7 +89,11 @@ logger = logging.getLogger(__name__)
 
 class CustomerSyncEngine(BaseSyncEngine):
     """
-    Sync engine for CUSTOMERS (Customers All).
+    Sync engine for Customers (CUSTOMERS + FNCCUST).
+
+    Merged workflow syncs:
+      - CUSTOMERS (main entity) with 5 sub-forms
+      - FNCCUST (secondary entity — financial parameters)
 
     Multi-table architecture:
       - Main fields from Customers table
@@ -95,6 +105,16 @@ class CustomerSyncEngine(BaseSyncEngine):
 
     Uses standard string keys (CUSTOMERS('C00001') works directly).
     """
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        # Secondary Priority client: FNCCUST (Financial Parameters for Customers)
+        self.priority_fnccust = PriorityClient(
+            entity=PRIORITY_FNCCUST_ENTITY,
+            key_field=PRIORITY_KEY_FIELD,
+            api_url_override=self.priority_url_override,
+            # FNCCUST uses string keys — standard URL access
+        )
 
     # ── Client factories ─────────────────────────────────────────────────
 
@@ -249,13 +269,14 @@ class CustomerSyncEngine(BaseSyncEngine):
         dry_run: bool,
     ) -> None:
         """
-        Sync 5 sub-forms for a customer after main CUSTOMERS sync.
+        Sync sub-forms + secondary entity for a customer after main CUSTOMERS sync.
 
         1. Contacts → CUSTPERSONNEL_SUBFORM
         2. Sites → CUSTDESTS_SUBFORM
         3. Special Prices → CUSTPARTPRICE_SUBFORM
         4. Price Lists → CUSTPLIST_SUBFORM
         5. Delivery Days → CUSTWEEKDAY_SUBFORM (with row explosion)
+        6. FNCCUST (Financial Parameters — secondary entity)
         """
         # 1. Contacts
         contacts = context.get("contacts_by_cust", {}).get(key, [])
@@ -308,6 +329,13 @@ class CustomerSyncEngine(BaseSyncEngine):
         # 5. Delivery Days (with row explosion)
         days_records = context.get("days_by_cust", {}).get(key, [])
         self._sync_delivery_days(key, days_records, result, dry_run)
+
+        # 6. FNCCUST (Financial Parameters — secondary entity)
+        if not dry_run:
+            self._sync_secondary_entity(
+                self.priority_fnccust, key, airtable_fields, result,
+                FNCCUST_A2P_FIELD_MAP, "fnccust",
+            )
 
     # ── Delivery Days: special handling ──────────────────────────────────
 
@@ -549,3 +577,102 @@ class CustomerSyncEngine(BaseSyncEngine):
                 return None
             value = value[0]
         return clean(value)
+
+    # ── Secondary entity sync (FNCCUST) ───────────────────────────────────
+
+    def _sync_secondary_entity(
+        self,
+        client: PriorityClient,
+        key: str,
+        airtable_fields: dict[str, Any],
+        result: SyncRecord,
+        field_map: list[FieldMapping],
+        label: str,
+    ) -> None:
+        """
+        Sync fields to a secondary Priority entity (FNCCUST).
+
+        Secondary entities are auto-created by Priority when the parent entity
+        is created — so this only does UPDATE (PATCH), never CREATE.
+        Errors are isolated and don't fail the main sync.
+        """
+        try:
+            payload = map_airtable_to_priority(airtable_fields, field_map=field_map)
+            # Remove the key field — it's for lookup only, not for patching
+            payload.pop(client.key_field, None)
+            if not payload:
+                return
+
+            existing = client.get_record(key)
+            if not existing:
+                result.subform_results.append(SubformResult(
+                    subform=label,
+                    action="skipped",
+                    detail="not found in Priority",
+                ))
+                return
+
+            # Build diff — only changed fields
+            patch: dict[str, Any] = {}
+            for k, v in payload.items():
+                current = existing.get(k)
+                if str(current) != str(v):
+                    patch[k] = v
+
+            if not patch:
+                return  # No changes — silently skip
+
+            client.update_record(key, patch)
+            result.subform_results.append(SubformResult(
+                subform=label,
+                action="updated",
+                detail=f"{len(patch)} fields",
+            ))
+            logger.debug("%s for %s: updated %d fields", label.upper(), key, len(patch))
+
+        except Exception as e:
+            logger.error("%s sync error for %s: %s", label.upper(), key, e)
+            result.subform_results.append(SubformResult(
+                subform=label,
+                action="error",
+                detail=str(e)[:100],
+            ))
+            self.stats.error_details.append(SyncError(
+                entity_key=key,
+                action="SECONDARY",
+                message=f"{label}: {e}",
+                timestamp=datetime.now(timezone.utc),
+            ))
+
+    # ── P→A extra fields (FNCCUST) ───────────────────────────────────────
+
+    def _get_p2a_extra_fields(
+        self,
+        key: str,
+        priority_record: dict[str, Any],
+        is_status: bool,
+    ) -> dict[str, Any]:
+        """
+        Fetch extra fields from Priority for P→A direction (full mode only).
+
+        Sources:
+        1. FNCCUST (Financial Parameters) — secondary entity
+        """
+        if is_status:
+            return {}
+
+        extra: dict[str, Any] = {}
+
+        # 1. FNCCUST fields → Airtable
+        try:
+            fnccust_data = self.priority_fnccust.get_record(key)
+            if fnccust_data:
+                from sync.core.base_engine import map_priority_to_airtable
+                fnccust_mapped = map_priority_to_airtable(
+                    fnccust_data, FNCCUST_P2A_FIELD_MAP, is_create=False,
+                )
+                extra.update(fnccust_mapped)
+        except Exception as e:
+            logger.warning("Failed to fetch FNCCUST for %s: %s", key, e)
+
+        return extra

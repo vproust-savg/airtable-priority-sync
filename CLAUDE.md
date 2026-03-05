@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**What we're building:** A bidirectional sync engine between Airtable and Priority ERP covering **9 workflows** across products, vendors, and customers.
+**What we're building:** A bidirectional sync engine between Airtable and Priority ERP covering **7 workflows** across products, vendors, and customers.
 **Tech stack:** Pure Python (no n8n). Hosted on Railway.
 **User context:** The project owner is not a developer. Keep explanations clear, ask before making assumptions, and never leave the project in a broken state.
 
@@ -20,29 +20,27 @@
 | `python3 -m sync.run_sync --workflow products --sku P00001` | Sync single product |
 | `python3 -m sync.run_sync --server` | Start webhook server (port 8000) |
 
-**Key flags:** `--workflow` (9 options), `--direction` (airtable-to-priority / priority-to-airtable / both), `--mode` (full / status), `--dry-run`, `--sku`, `--test-base`, `--priority-env` (sandbox / uat / production)
+**Key flags:** `--workflow` (7 options), `--direction` (airtable-to-priority / priority-to-airtable / both), `--mode` (full / status), `--dry-run`, `--sku`, `--test-base`, `--priority-env` (sandbox / uat / production)
 
 **Requires:** Python 3.11+ (`pyproject` uses `.python-version`)
 
 ---
 
-## Scope: 11 Sync Workflows
+## Scope: 7 Sync Workflows (Merged)
 
-| # | Workflow | Priority Entity | CLI Name | Airtable Table | Direction |
-|---|---------|----------------|----------|----------------|-----------|
-| 1 | Parts All | LOGPART | `products` | Products | Bidirectional |
-| 2 | Fin. Params Parts | FNCPART | `fncpart` | Products | Bidirectional |
-| 3 | MRP for Parts | PRDPART | `prdpart` | Products | Bidirectional |
-| 4 | Vendors All | SUPPLIERS | `vendors` | Vendors All | Bidirectional |
-| 5 | Fin. Params Vendors | FNCSUP | `fncsup` | Vendors All | Bidirectional |
-| 6 | Vendor Price Lists | PRICELIST | `vendor-prices` | Vendor Price List | Bidirectional |
-| 7 | Customers All | CUSTOMERS | `customers` | Customers All | Bidirectional |
-| 8 | Fin. Params Customers | FNCCUST | `fnccust` | Customers All | Bidirectional |
-| 9 | Customer Price Lists | PRICELIST | `customer-prices` | Customer Price List | Bidirectional |
-| 10 | Product Images | LOGPART | `images` | Products | A→P only |
-| 11 | Tech Sheets | LOGPART | `techsheets` | Products | A→P only |
+| # | Workflow | Priority Entities | CLI Name | Airtable Table | Direction |
+|---|---------|-------------------|----------|----------------|-----------|
+| 10 | Products | LOGPART + FNCPART + PRDPART | `products` | Products | Bidirectional |
+| 20 | Vendors | SUPPLIERS + FNCSUP | `vendors` | Vendors | Bidirectional |
+| 21 | Vendor Price Lists | PRICELIST | `vendor-prices` | Vendor Price List | Bidirectional |
+| 30 | Customers | CUSTOMERS + FNCCUST | `customers` | Customers | Bidirectional |
+| 31 | Customer Price Lists | PRICELIST | `customer-prices` | Customer Price List | Bidirectional |
+| 40 | Product Images | LOGPART | `images` | Products | A→P only |
+| 41 | Tech Sheets | LOGPART | `techsheets` | Products | A→P only |
 
-Workflows 1–9 support bidirectional sync (A→P and P→A). Workflow 10 (images) is A→P only — downloads images from Airtable, compresses with Pillow (<150KB JPG), and uploads to Priority's `EXTFILENAME` field. Workflow 11 (tech sheets) is A→P only — uploads PDFs from Airtable to Priority's `PARTEXTFILE_SUBFORM` sub-form.
+Workflows 10–31 support bidirectional sync (A→P and P→A). Products, Vendors, and Customers each sync their financial parameter entities (FNCPART/PRDPART, FNCSUP, FNCCUST) as secondary entities within the same workflow. Product Images (40) downloads from Airtable, compresses with Pillow (<150KB JPG), and uploads to Priority's `EXTFILENAME` field. Tech Sheets (41) uploads PDFs from Airtable to Priority's `PARTEXTFILE_SUBFORM` sub-form. Both are A→P only.
+
+**Products also supports `--mode status`** for status-only sync (touches only LOGPART status fields, skips sub-forms and secondary entities).
 
 ---
 
@@ -74,14 +72,14 @@ All credentials are in `.env`. Never hardcode them in source files.
 - **Auto-deploys:** Pushes to `main` on GitHub trigger automatic redeploy
 - **Env vars:** All credentials set in Railway Variables tab (never in code)
 
-**Webhook endpoint pattern** (22 workflow-specific endpoints + 5 legacy):
+**Webhook endpoint pattern** (14 workflow-specific endpoints + 5 legacy):
 ```
 GET /webhook/{workflow}/sync?key={KEY}                    # A→P full sync
 GET /webhook/{workflow}/sync-from-priority?key={KEY}      # P→A full sync
 GET /webhook/{workflow}/sync-status?key={KEY}             # A→P status-only (products only)
 GET /webhook/{workflow}/sync-from-priority-status?key={KEY} # P→A status-only (products only)
 ```
-Where `{workflow}` = `products`, `fncpart`, `prdpart`, `vendors`, `fncsup`, `vendor-prices`, `customers`, `fnccust`, `customer-prices`, `images`, `techsheets`.
+Where `{workflow}` = `products`, `vendors`, `vendor-prices`, `customers`, `customer-prices`, `images`, `techsheets`.
 
 **Note:** `images` and `techsheets` workflows only have the `/sync` endpoint (A→P only, no reverse direction or status mode).
 
@@ -403,8 +401,9 @@ This project has parallel workstreams. Use subagents for:
 - **Phase 2:** ✅ DONE — Sub-forms (allergens, shelf lives, price lists, bins), webhook server, sync logging, GitHub
 - **Phase 3:** ✅ DONE — Railway deployment, clickable GET endpoint, Airtable button trigger via API Sync table
 - **Phase 4:** ✅ DONE — P→A sync for products, both directions, test base support
-- **Phase 5:** ✅ DONE — All 9 workflows (products, fncpart, prdpart, vendors, fncsup, vendor-prices, customers, fnccust, customer-prices) with bidirectional sync + environment switching
-- **Phase 6:** 🔄 NEXT — Testing all 9 workflows, then 2-way conflict detection & resolution
+- **Phase 5:** ✅ DONE — All workflows with bidirectional sync + environment switching
+- **Phase 5.5:** ✅ DONE — Merged financial parameter workflows into parent workflows (11→7 workflows: products+fncpart+prdpart, vendors+fncsup, customers+fnccust)
+- **Phase 6:** 🔄 NEXT — Testing all 7 workflows, then 2-way conflict detection & resolution
 
 ## Current Architecture
 
@@ -420,17 +419,17 @@ sync/
 │   ├── logger_setup.py    # Logging config + console formatting
 │   └── utils.py           # clean(), format_price(), to_int(), to_float(), priority_yn()
 ├── workflows/             # Per-entity workflow configs
-│   ├── products/          # LOGPART — engine, config, field_mapping, subform_mapping
-│   ├── fncpart/           # FNCPART — engine, config, field_mapping
-│   ├── prdpart/           # PRDPART — engine, config, field_mapping
-│   ├── vendors/           # SUPPLIERS — engine, config, field_mapping, subform_mapping
-│   ├── fncsup/            # FNCSUP — engine, config, field_mapping
-│   ├── vendor_prices/     # PRICELIST (vendor) — engine, config, field_mapping
-│   ├── customers/         # CUSTOMERS — engine, config, field_mapping, subform_mapping
-│   ├── fnccust/           # FNCCUST — engine, config, field_mapping
-│   └── customer_prices/   # PRICELIST (customer) — engine, config, field_mapping
-├── server.py              # FastAPI: /health, 22 webhook endpoints, env switching
-└── run_sync.py            # CLI: --workflow, --direction, --priority-env, --test-base, --dry-run
+│   ├── products/          # LOGPART + FNCPART + PRDPART — merged engine
+│   ├── fncpart/           # FNCPART — field_mapping imported by products (engine unused)
+│   ├── prdpart/           # PRDPART — field_mapping imported by products (engine unused)
+│   ├── vendors/           # SUPPLIERS + FNCSUP — merged engine
+│   ├── fncsup/            # FNCSUP — field_mapping imported by vendors (engine unused)
+│   ├── vendor_prices/     # PRICELIST (vendor) — standalone engine
+│   ├── customers/         # CUSTOMERS + FNCCUST — merged engine
+│   ├── fnccust/           # FNCCUST — field_mapping imported by customers (engine unused)
+│   └── customer_prices/   # PRICELIST (customer) — standalone engine
+├── server.py              # FastAPI: /health, 14 webhook endpoints, env switching
+└── run_sync.py            # CLI: --workflow (7), --direction, --priority-env, --test-base, --dry-run
 ```
 
 ---
@@ -445,7 +444,7 @@ sync/
 
 ## Core Principles
 
-- **Defined scope** — 9 workflows (products, vendors, customers + their financial params + price lists). Do not expand without explicit approval
+- **Defined scope** — 7 workflows (products, vendors, customers + price lists + images + tech sheets). Do not expand without explicit approval
 - **Simplicity first** — but never at the expense of robustness
 - **Production grade** — this is not a prototype
 - **Idempotency & safety** — zero duplicates or data loss

@@ -14,6 +14,16 @@ from typing import Any, Callable
 from sync.core.models import FieldMapping
 from sync.core.utils import clean, format_price, priority_yn, to_float, to_int
 
+# Import secondary entity field mappings (merged from fncpart/prdpart)
+from sync.workflows.fncpart.field_mapping import (
+    A2P_FIELD_MAP as FNCPART_A2P_FIELD_MAP,
+    P2A_FIELD_MAP as FNCPART_P2A_FIELD_MAP,
+)
+from sync.workflows.prdpart.field_mapping import (
+    A2P_FIELD_MAP as PRDPART_A2P_FIELD_MAP,
+    P2A_FIELD_MAP as PRDPART_P2A_FIELD_MAP,
+)
+
 
 # ── Transform function registry ──────────────────────────────────────────────
 
@@ -292,6 +302,14 @@ AIRTABLE_FIELDS_TO_FETCH: list[str] = (
         "EDI Main",
         "Simplified Bin Location (from Bin # Priority)",
     ]
+    # ── FNCPART fields (Accounting Family, Weight, HTS, etc.) ────────
+    + [m.airtable_field for m in FNCPART_A2P_FIELD_MAP
+       if m.airtable_field not in {"SKU Trim (EDI)", "Last Synced to Priority",
+                                    "Last Synced from Priority", "Priority UDATE"}]
+    # ── PRDPART fields (Lead Time, Safety Stock, etc.) ───────────────
+    + [m.airtable_field for m in PRDPART_A2P_FIELD_MAP
+       if m.airtable_field not in {"SKU Trim (EDI)", "Last Synced to Priority",
+                                    "Last Synced from Priority", "Priority UDATE"}]
 )
 
 
@@ -463,6 +481,8 @@ P2A_STATUS_FIELD_MAP: list[FieldMapping] = [
 
 P2A_AIRTABLE_FIELDS_TO_FETCH: list[str] = (
     [m.airtable_field for m in P2A_FIELD_MAP]
+    + [m.airtable_field for m in FNCPART_P2A_FIELD_MAP]
+    + [m.airtable_field for m in PRDPART_P2A_FIELD_MAP]
     + [
         "SKU Trim (EDI)",
         "Last Synced from Priority",

@@ -13,6 +13,12 @@ from __future__ import annotations
 
 from sync.core.models import FieldMapping
 
+# ── FNCCUST field maps (imported for merged workflow) ────────────────────────
+from sync.workflows.fnccust.field_mapping import (
+    A2P_FIELD_MAP as FNCCUST_A2P_FIELD_MAP,
+    P2A_FIELD_MAP as FNCCUST_P2A_FIELD_MAP,
+)
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # A→P (Airtable → Priority) field mapping — Main CUSTOMERS entity
@@ -257,6 +263,10 @@ P2A_FIELD_MAP: list[FieldMapping] = [
 
 AIRTABLE_FIELDS_TO_FETCH: list[str] = (
     [m.airtable_field for m in A2P_FIELD_MAP]
+    # ── FNCCUST fields (Billing Cust, Account No, Invoice Type, etc.) ──
+    + [m.airtable_field for m in FNCCUST_A2P_FIELD_MAP
+       if m.airtable_field not in {"Priority Cust. ID", "Last Synced to Priority",
+                                    "Last Synced from Priority", "Priority UDATE"}]
     + [
         "Last Synced to Priority",
         "Last Synced from Priority",
@@ -268,6 +278,7 @@ AIRTABLE_FIELDS_TO_FETCH: list[str] = (
 
 P2A_AIRTABLE_FIELDS_TO_FETCH: list[str] = (
     [m.airtable_field for m in P2A_FIELD_MAP]
+    + [m.airtable_field for m in FNCCUST_P2A_FIELD_MAP]
     + [
         "Priority Cust. ID",
         "Last Synced from Priority",

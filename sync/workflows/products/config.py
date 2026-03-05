@@ -19,9 +19,13 @@ AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY = "Last Synced from Priority"
 AIRTABLE_SHELF_LIVES_TABLE_ID = "tbluWqVkrpLFh0D1G"
 AIRTABLE_SHELF_LIVES_VIEW = "EDI Parts 2 - Shelf Lives"
 
-# Priority entity
+# Priority entities
 PRIORITY_ENTITY = "LOGPART"
 PRIORITY_KEY_FIELD = "PARTNAME"
+
+# Secondary entities (merged from fncpart + prdpart workflows)
+PRIORITY_FNCPART_ENTITY = "FNCPART"
+PRIORITY_PRDPART_ENTITY = "PRDPART"
 
 # Timestamp field names dict (for AirtableClient constructor)
 TIMESTAMP_FIELDS = {

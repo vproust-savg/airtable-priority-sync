@@ -2,18 +2,14 @@
 """
 Entry point for Airtable ↔ Priority ERP Sync.
 
-Supports 11 workflows via --workflow flag:
-  products        (LOGPART)    — Parts All
-  fncpart         (FNCPART)    — Fin. Params Parts
-  prdpart         (PRDPART)    — MRP for Parts
-  vendors         (SUPPLIERS)  — Vendors All
-  fncsup          (FNCSUP)     — Fin. Params Vendors
-  vendor-prices   (PRICELIST)  — Vendor Price Lists
-  customers       (CUSTOMERS)  — Customers All
-  fnccust         (FNCCUST)    — Fin. Params Customers
-  customer-prices (PRICELIST)  — Customer Price Lists
-  images          (LOGPART)    — Product Images (A→P only)
-  techsheets      (LOGPART)    — Tech Sheet PDFs (A→P only)
+Supports 7 workflows via --workflow flag:
+  products        (LOGPART + FNCPART + PRDPART) — Products (merged)
+  vendors         (SUPPLIERS + FNCSUP)          — Vendors (merged)
+  vendor-prices   (PRICELIST)                   — Vendor Price Lists
+  customers       (CUSTOMERS + FNCCUST)         — Customers (merged)
+  customer-prices (PRICELIST)                   — Customer Price Lists
+  images          (LOGPART)                     — Product Images (A→P only)
+  techsheets      (LOGPART)                     — Tech Sheet PDFs (A→P only)
 
 Usage:
     python -m sync.run_sync --workflow products                   # Full product sync
@@ -39,27 +35,15 @@ def _get_engine_class(workflow: str):
     if workflow == "products":
         from sync.workflows.products.engine import ProductSyncEngine
         return ProductSyncEngine
-    elif workflow == "fncpart":
-        from sync.workflows.fncpart.engine import FncpartSyncEngine
-        return FncpartSyncEngine
-    elif workflow == "prdpart":
-        from sync.workflows.prdpart.engine import PrdpartSyncEngine
-        return PrdpartSyncEngine
     elif workflow == "vendors":
         from sync.workflows.vendors.engine import VendorSyncEngine
         return VendorSyncEngine
-    elif workflow == "fncsup":
-        from sync.workflows.fncsup.engine import FncsupSyncEngine
-        return FncsupSyncEngine
     elif workflow == "vendor-prices":
         from sync.workflows.vendor_prices.engine import VendorPriceSyncEngine
         return VendorPriceSyncEngine
     elif workflow == "customers":
         from sync.workflows.customers.engine import CustomerSyncEngine
         return CustomerSyncEngine
-    elif workflow == "fnccust":
-        from sync.workflows.fnccust.engine import FnccustSyncEngine
-        return FnccustSyncEngine
     elif workflow == "customer-prices":
         from sync.workflows.customer_prices.engine import CustomerPriceSyncEngine
         return CustomerPriceSyncEngine
@@ -80,9 +64,9 @@ def main() -> int:
     parser.add_argument(
         "--workflow",
         choices=[
-            "products", "fncpart", "prdpart",
-            "vendors", "fncsup", "vendor-prices",
-            "customers", "fnccust", "customer-prices",
+            "products",
+            "vendors", "vendor-prices",
+            "customers", "customer-prices",
             "images", "techsheets",
         ],
         default="products",

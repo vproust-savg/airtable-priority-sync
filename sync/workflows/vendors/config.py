@@ -1,4 +1,4 @@
-"""Vendors All configuration constants (SUPPLIERS + sub-forms)."""
+"""Vendors All configuration constants (SUPPLIERS + FNCSUP + sub-forms)."""
 
 # ── Main Airtable table ─────────────────────────────────────────────────────
 AIRTABLE_TABLE_NAME = "Vendors"
@@ -20,20 +20,29 @@ AIRTABLE_SITES_VIEW = "EDI Vendors 4 - Vendor Sites"
 
 AIRTABLE_REMARKS_VIEW = "EDI Vendors 5 - Remarks"
 
+# ── Bank account view (same Vendors table, different view) ───────────────────
+AIRTABLE_BANK_VIEW = "EDI Vend. Financial 2 - Bank Account Details"
+
 # ── Timestamp fields ─────────────────────────────────────────────────────────
 AIRTABLE_FIELD_LAST_SYNCED = "Last Synced to Priority"
 AIRTABLE_FIELD_LAST_SYNCED_FROM_PRIORITY = "Last Synced from Priority"
 AIRTABLE_FIELD_PRIORITY_UDATE = "Priority UDATE"
 
-# ── Priority entity ─────────────────────────────────────────────────────────
+# ── Priority entities ────────────────────────────────────────────────────────
 PRIORITY_ENTITY = "SUPPLIERS"
 PRIORITY_KEY_FIELD = "SUPNAME"
+
+# Secondary entity: FNCSUP (Financial Parameters for Vendors)
+PRIORITY_FNCSUP_ENTITY = "FNCSUP"
 
 # Sub-form names
 CONTACTS_SUBFORM_NAME = "SUPPERSONNEL_SUBFORM"
 PARTS_SUBFORM_NAME = "SUPPART_SUBFORM"
 SITES_SUBFORM_NAME = "SUPDESTCODES_SUBFORM"
 # SUPPLIERSTEXT_SUBFORM → returns 404, cannot sync via API
+
+# Bank account sub-form (lives on FNCSUP)
+ACCOUNTBANK_SUBFORM_NAME = "ACCOUNTBANK_SUBFORM"
 
 TIMESTAMP_FIELDS = {
     "last_synced_to": AIRTABLE_FIELD_LAST_SYNCED,
