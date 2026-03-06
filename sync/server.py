@@ -36,6 +36,7 @@ Backward-compatible product endpoints:
 
 from __future__ import annotations
 
+import hmac
 import logging
 import threading
 from datetime import datetime, timezone
@@ -108,7 +109,7 @@ def _verify_api_key(authorization: str | None) -> None:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing Authorization header.")
     token = authorization.removeprefix("Bearer ").strip()
-    if token != WEBHOOK_API_KEY:
+    if not hmac.compare_digest(token, WEBHOOK_API_KEY):
         raise HTTPException(status_code=403, detail="Invalid API key.")
 
 
@@ -119,7 +120,7 @@ def _verify_query_key(key: str | None) -> None:
             status_code=503,
             detail="Webhook not configured. Set WEBHOOK_API_KEY env var.",
         )
-    if not key or key != WEBHOOK_API_KEY:
+    if not key or not hmac.compare_digest(key, WEBHOOK_API_KEY):
         raise HTTPException(status_code=403, detail="Invalid API key.")
 
 
@@ -303,9 +304,39 @@ def _start_workflow(
 # ── Health check ──────────────────────────────────────────────────────────────
 
 @app.get("/health")
-def health_check() -> dict[str, str]:
-    """Health check for Railway."""
-    return {"status": "ok"}
+def health_check() -> dict[str, Any]:
+    """Health check for Railway. Pings Priority and Airtable APIs."""
+    import requests as _requests
+
+    results: dict[str, str] = {}
+
+    # Test Priority API
+    try:
+        from sync.core.config import PRIORITY_API_URL, PRIORITY_USER, PRIORITY_PASS
+        resp = _requests.get(
+            f"{PRIORITY_API_URL}LOGPART?$top=1&$select=PARTNAME",
+            auth=(PRIORITY_USER, PRIORITY_PASS),
+            headers={"IEEE754Compatible": "true"},
+            timeout=10,
+        )
+        results["priority"] = "ok" if resp.status_code == 200 else f"error ({resp.status_code})"
+    except Exception as e:
+        results["priority"] = f"error ({e.__class__.__name__})"
+
+    # Test Airtable API
+    try:
+        from sync.core.config import AIRTABLE_TOKEN
+        resp = _requests.get(
+            "https://api.airtable.com/v0/meta/whoami",
+            headers={"Authorization": f"Bearer {AIRTABLE_TOKEN}"},
+            timeout=10,
+        )
+        results["airtable"] = "ok" if resp.status_code == 200 else f"error ({resp.status_code})"
+    except Exception as e:
+        results["airtable"] = f"error ({e.__class__.__name__})"
+
+    all_ok = all(v == "ok" for v in results.values())
+    return {"status": "ok" if all_ok else "degraded", **results}
 
 
 @app.get("/sentry-debug")
