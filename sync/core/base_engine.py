@@ -758,9 +758,9 @@ class BaseSyncEngine(abc.ABC):
         # Log run to Airtable (non-blocking -- failures don't affect sync result)
         if not self.dry_run:
             direction_label = (
-                "A->P"
+                "A→P"
                 if self.direction == SyncDirection.AIRTABLE_TO_PRIORITY
-                else "P->A"
+                else "P→A"
             )
             self.sync_log.log_run(
                 self.stats,
@@ -1196,7 +1196,7 @@ class BaseSyncEngine(abc.ABC):
                     field_name=priority_field,
                     source_value=airtable_value,
                     target_value=priority_value,
-                    direction="A->P",
+                    direction="A→P",
                     resolution="pending",
                     timestamp=now_iso,
                 ))
@@ -1449,7 +1449,7 @@ class BaseSyncEngine(abc.ABC):
                     field_name=airtable_field,
                     source_value=priority_value,
                     target_value=airtable_value,
-                    direction="P->A",
+                    direction="P→A",
                     resolution="pending",
                     timestamp=now_iso,
                 ))
