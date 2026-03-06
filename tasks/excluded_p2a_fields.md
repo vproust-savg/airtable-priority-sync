@@ -14,6 +14,8 @@ if they should be re-added with a different Airtable target or permanently exclu
 | 2026-03-06 | products | `WSPLPRICE` | LVL 2 SALE PRICE (from Price Import) | `fld9Ku04QU2bJiBYX` | Airtable field is formula/lookup — read-only |
 | 2026-03-06 | products (sub-form) | `PARTINCUSTPLISTS_SUBFORM` | LVL 1/2/3 SALE PRICE, Price List Codes | various | Price list sub-form — A→P only, Airtable price fields are read-only |
 | 2026-03-06 | products (sub-form) | `PARTLOCATIONS_SUBFORM` | Bin Locations | various | Not needed for P→A — A→P only for now |
+| 2026-03-06 | products | `SPEC14` | Availability Priority Output | `fldouLxtxbUhY0Caq` | Airtable field is formula — read-only. A→P reads the formula value (works), P→A can't write. |
+| 2026-03-06 | products | `SPEC16` | Vendor SKU Trim | `fldOE3NlqM1kIPMdk` | Writable field, but not yet needed P→A — circle back later |
 
 ## Notes
 - A→P mapping for these fields is NOT affected (kept in A2P_FIELD_MAP)
