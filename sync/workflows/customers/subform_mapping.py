@@ -31,6 +31,14 @@ CONTACTS_AIRTABLE_FIELDS: list[str] = [
     "Linkedin",
     "Sign Up Priority",
     "Clean Full Name",
+    "Main Contact Output",
+    "Marketing Output",
+    "Price Quote Output",
+    "Sales Order Output",
+    "Shipment Output",
+    "Invoice Output",
+    "Cust. Statement Output",
+    "Outgoing Voucher Output",
 ]
 
 CONTACTS_FIELD_IDS: dict[str, str] = {
@@ -46,6 +54,14 @@ CONTACTS_FIELD_IDS: dict[str, str] = {
     "Linkedin": "fldamkilBbLhalu0X",
     "Sign Up Priority": "fldy25icq78YSMcUk",
     "Clean Full Name": "fldJgSoTTx2eRcgEg",
+    "Main Contact Output": "fldlSY1amLBqTeFlr",
+    "Marketing Output": "fldZlEv78f9iajYA3",
+    "Price Quote Output": "fldijSOdUr8HwqcCn",
+    "Sales Order Output": "fldvQDpD5IFeZ7kaT",
+    "Shipment Output": "fldkU2Li0iLA2fUUw",
+    "Invoice Output": "fldDrc3EDhQwMr6v1",
+    "Cust. Statement Output": "fld9lL0as0ia7t9EK",
+    "Outgoing Voucher Output": "fldxiahOYOBseWdbU",
 }
 
 # Airtable field → Priority sub-form field
@@ -61,6 +77,14 @@ CONTACTS_FIELD_MAP: dict[str, str] = {
     "Status": "STATDES",
     "Linkedin": "EXTFILENAME",
     "Sign Up Priority": "GWREGISTERED",
+    "Main Contact Output": "MAINPHONE",
+    "Marketing Output": "DEALFLAG",
+    "Price Quote Output": "CPROFFLAG",
+    "Sales Order Output": "ORDFLAG",
+    "Shipment Output": "DOCFLAG",
+    "Invoice Output": "CIVFLAG",
+    "Cust. Statement Output": "FNCFLAG",
+    "Outgoing Voucher Output": "CONSINGEEFLAG",
 }
 
 # Match contacts by NAME for upsert

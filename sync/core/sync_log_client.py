@@ -225,7 +225,7 @@ class SyncLogClient:
             fields: dict[str, Any] = {
                 "Error ID": str(uuid.uuid4())[:8],
                 "Sync Run": [run_record_id],
-                self.entity_label: err.entity_key,
+                "SKU": err.entity_key,
                 "Action": err.action,
                 "Error Message": err.message,
                 "Timestamp": err.timestamp.isoformat(),

@@ -304,6 +304,7 @@ AIRTABLE_FIELDS_TO_FETCH: list[str] = (
         "Last Synced to Priority",
         "Last Synced from Priority",
         "Priority UDATE",
+        "Credit Application",  # Attachment field → CUSTEXTFILE_SUBFORM
     ]
 )
 

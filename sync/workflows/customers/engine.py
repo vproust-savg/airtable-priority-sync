@@ -4,13 +4,14 @@ Customers sync engine: CUSTOMERS + FNCCUST + sub-forms.
 Subclasses BaseSyncEngine with CUSTOMERS-specific configuration.
 Merged workflow syncs both CUSTOMERS (main entity) and FNCCUST (secondary entity).
 
-Handles 5 accessible sub-forms from 4 Airtable tables:
+Handles 6 accessible sub-forms from 4 Airtable tables:
   - Customer Contacts  → CUSTPERSONNEL_SUBFORM (separate table)
   - Customer Sites     → CUSTDESTS_SUBFORM (separate table)
   - Special Prices     → CUSTPARTPRICE_SUBFORM (separate table)
   - Price List         → CUSTPLIST_SUBFORM (Customers table, different view)
   - Delivery Days      → CUSTWEEKDAY_SUBFORM (Customers table, different view)
                          Requires row explosion + day abbreviation + time conversion
+  - Credit Application → CUSTEXTFILE_SUBFORM (attachment download + base64 upload)
 
 NOT accessible via API (return 404):
   - CUSTOMERSTEXT_SUBFORM (internal remarks)
@@ -19,7 +20,9 @@ NOT accessible via API (return 404):
 
 from __future__ import annotations
 
+import base64
 import logging
+import mimetypes
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -53,6 +56,9 @@ from sync.workflows.customers.config import (
     AIRTABLE_SYNC_VIEW,
     AIRTABLE_TABLE_NAME,
     CONTACTS_SUBFORM_NAME,
+    CREDIT_APP_AIRTABLE_FIELD,
+    CREDIT_APP_EXTFILEDES_PREFIX,
+    CREDIT_APP_SUBFORM_NAME,
     PRICE_LIST_SUBFORM_NAME,
     PRIORITY_ENTITY,
     PRIORITY_FNCCUST_ENTITY,
@@ -296,14 +302,60 @@ class CustomerSyncEngine(BaseSyncEngine):
         3. Special Prices → CUSTPARTPRICE_SUBFORM
         4. Price Lists → CUSTPLIST_SUBFORM
         5. Delivery Days → CUSTWEEKDAY_SUBFORM (with row explosion)
-        6. FNCCUST (Financial Parameters — secondary entity)
+        6. Credit Application → CUSTEXTFILE_SUBFORM (file upload)
+        7. FNCCUST (Financial Parameters — secondary entity)
         """
         # 1. Contacts
         contacts = context.get("contacts_by_cust", {}).get(key, [])
+        # Filter Email_ID to match this customer's account ID
+        # (contacts linked to multiple customers have multi-line emails)
+        account_id = key.lstrip("C")  # "C7021" → "7021"
+        filtered_contacts = []
+        for contact in contacts:
+            contact_copy = dict(contact)
+            email_raw = contact_copy.get("Email_ID")
+            if email_raw:
+                email_str = clean(email_raw) or ""
+                parts = [p.strip() for p in email_str.split() if "@" in p]
+                match = next((p for p in parts if f"+{account_id}@" in p), None)
+                if match:
+                    contact_copy["Email_ID"] = match
+                elif parts:
+                    contact_copy["Email_ID"] = parts[0]
+            filtered_contacts.append(contact_copy)
+        # Single-flag enforcement — Priority allows only one "Y" per flag per customer
+        _SINGLE_FLAG_FIELDS = [
+            "Main Contact Output",
+            "Marketing Output",
+            "Price Quote Output",
+            "Sales Order Output",
+            "Shipment Output",
+            "Invoice Output",
+            "Cust. Statement Output",
+            "Outgoing Voucher Output",
+        ]
+        # If only one contact, auto-set as Main
+        if len(filtered_contacts) == 1:
+            if clean(filtered_contacts[0].get("Main Contact Output")) != "Y":
+                filtered_contacts[0]["Main Contact Output"] = "Y"
+                logger.info("%s: single contact — auto-setting as Main", key)
+        # For each flag, ensure at most one contact has "Y"
+        for flag_field in _SINGLE_FLAG_FIELDS:
+            flagged = [
+                i for i, c in enumerate(filtered_contacts)
+                if clean(c.get(flag_field)) == "Y"
+            ]
+            if len(flagged) > 1:
+                logger.warning(
+                    "%s: %d contacts have %s=Y — keeping first, clearing others",
+                    key, len(flagged), flag_field,
+                )
+                for idx in flagged[1:]:
+                    filtered_contacts[idx][flag_field] = "N"
         self._sync_one_subform(
             key=key,
             subform_name=CONTACTS_SUBFORM_NAME,
-            airtable_records=contacts,
+            airtable_records=filtered_contacts,
             field_map=CONTACTS_FIELD_MAP,
             result=result,
             dry_run=dry_run,
@@ -350,7 +402,10 @@ class CustomerSyncEngine(BaseSyncEngine):
         days_records = context.get("days_by_cust", {}).get(key, [])
         self._sync_delivery_days(key, days_records, result, dry_run)
 
-        # 6. FNCCUST (Financial Parameters — secondary entity)
+        # 6. Credit Application document → CUSTEXTFILE_SUBFORM
+        self._sync_credit_application(key, airtable_fields, result, dry_run)
+
+        # 7. FNCCUST (Financial Parameters — secondary entity)
         if not dry_run:
             self._sync_secondary_entity(
                 self.priority_fnccust, key, airtable_fields, result,
@@ -439,6 +494,121 @@ class CustomerSyncEngine(BaseSyncEngine):
                 )
             )
 
+    # ── Credit Application upload ────────────────────────────────────────
+
+    def _sync_credit_application(
+        self,
+        key: str,
+        airtable_fields: dict[str, Any],
+        result: SyncRecord,
+        dry_run: bool,
+    ) -> None:
+        """
+        Upload Credit Application attachment to CUSTEXTFILE_SUBFORM.
+
+        Pattern: download from Airtable CDN → base64 encode → POST to sub-form.
+        Deduplication: skip if EXTFILEDES label already exists in Priority.
+        """
+        attachments = airtable_fields.get(CREDIT_APP_AIRTABLE_FIELD, [])
+        if not attachments or not isinstance(attachments, list):
+            return
+
+        attachment = attachments[0] if isinstance(attachments[0], dict) else {}
+        file_url = attachment.get("url", "")
+        filename = attachment.get("filename", "credit_application.pdf")
+        mime_type = attachment.get("type", "")
+
+        if not file_url:
+            return
+
+        if not mime_type:
+            mime_type, _ = mimetypes.guess_type(filename)
+            mime_type = mime_type or "application/pdf"
+
+        doc_label = f"{CREDIT_APP_EXTFILEDES_PREFIX} - {key}"
+
+        # Check for existing document (dedup by EXTFILEDES)
+        if not dry_run:
+            try:
+                url = (
+                    f"{self.priority.api_url}{PRIORITY_ENTITY}"
+                    f"('{key}')/{CREDIT_APP_SUBFORM_NAME}"
+                )
+                resp = self.priority.session.get(url, timeout=30)
+                resp.raise_for_status()
+                existing = resp.json().get("value", [])
+                if any(r.get("EXTFILEDES") == doc_label for r in existing):
+                    logger.debug(
+                        "%s: Credit Application already in Priority — skipping", key,
+                    )
+                    return
+            except Exception as e:
+                logger.warning(
+                    "Could not check existing docs for %s: %s", key, e,
+                )
+
+        if dry_run:
+            result.subform_results.append(
+                SubformResult(
+                    subform=CREDIT_APP_SUBFORM_NAME,
+                    action="DRY_RUN",
+                    detail=f"Would upload credit application ({filename})",
+                )
+            )
+            return
+
+        # Download file from Airtable CDN
+        try:
+            resp = requests.get(file_url, timeout=120)
+            resp.raise_for_status()
+            file_bytes = resp.content
+        except Exception as e:
+            logger.error("%s: Credit Application download failed: %s", key, e)
+            result.subform_results.append(
+                SubformResult(
+                    subform=CREDIT_APP_SUBFORM_NAME,
+                    action="ERROR",
+                    detail=f"Download failed: {e}",
+                )
+            )
+            return
+
+        # Base64 encode and upload
+        b64_data = base64.b64encode(file_bytes).decode("ascii")
+        data_uri = f"data:{mime_type};base64,{b64_data}"
+
+        try:
+            url = (
+                f"{self.priority.api_url}{PRIORITY_ENTITY}"
+                f"('{key}')/{CREDIT_APP_SUBFORM_NAME}"
+            )
+            resp = self.priority.session.post(
+                url,
+                json={"EXTFILENAME": data_uri, "EXTFILEDES": doc_label},
+                timeout=180,
+            )
+            resp.raise_for_status()
+            size_kb = len(file_bytes) / 1024
+            logger.info(
+                "%s: Credit Application uploaded (%.0fKB, %s)", key, size_kb, filename,
+            )
+            result.subform_results.append(
+                SubformResult(
+                    subform=CREDIT_APP_SUBFORM_NAME,
+                    action="UPDATED",
+                    detail=f"Uploaded credit application ({size_kb:.0f}KB, {filename})",
+                )
+            )
+        except Exception as e:
+            logger.error("%s: Credit Application upload failed: %s", key, e)
+            result.subform_results.append(
+                SubformResult(
+                    subform=CREDIT_APP_SUBFORM_NAME,
+                    action="ERROR",
+                    detail=f"Upload failed: {e}",
+                )
+            )
+
     # ── Generic sub-form sync ────────────────────────────────────────────
 
     def _sync_one_subform(
@@ -495,17 +665,44 @@ class CustomerSyncEngine(BaseSyncEngine):
                     detail=f"Synced {len(payloads)} {label}",
                 )
             )
-        except Exception as e:
-            logger.error(
-                "Failed to sync %s for customer %s: %s", label, key, e,
+        except Exception as batch_err:
+            # Batch failed — retry each record individually so good ones still sync
+            logger.warning(
+                "%s: batch %s failed (%s) — retrying %d records individually",
+                key, label, batch_err, len(payloads),
             )
-            result.subform_results.append(
-                SubformResult(
-                    subform=subform_name,
-                    action="ERROR",
-                    detail=str(e),
+            ok, failed = 0, 0
+            for payload in payloads:
+                try:
+                    self.priority.deep_patch_subform(
+                        key_value=key,
+                        subform_name=subform_name,
+                        records=[payload],
+                    )
+                    ok += 1
+                except Exception as e:
+                    failed += 1
+                    record_name = payload.get("NAME", "unknown")
+                    logger.error(
+                        "%s: failed to sync %s '%s': %s",
+                        key, label, record_name, e,
+                    )
+            if ok:
+                result.subform_results.append(
+                    SubformResult(
+                        subform=subform_name,
+                        action="PARTIAL",
+                        detail=f"Synced {ok}/{ok + failed} {label} ({failed} failed)",
+                    )
                 )
-            )
+            if failed:
+                result.subform_results.append(
+                    SubformResult(
+                        subform=subform_name,
+                        action="ERROR",
+                        detail=f"{failed}/{ok + failed} {label} failed",
+                    )
+                )
 
     # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -580,7 +777,12 @@ class CustomerSyncEngine(BaseSyncEngine):
             raw_key = fields.get(key_field)
 
             if isinstance(raw_key, list):
-                cust_id = clean(raw_key[0]) if raw_key else None
+                # Contact linked to multiple customers → group under ALL of them
+                for item in raw_key:
+                    cust_id = clean(item)
+                    if cust_id:
+                        grouped.setdefault(cust_id, []).append(fields)
+                continue
             else:
                 cust_id = clean(raw_key)
 
