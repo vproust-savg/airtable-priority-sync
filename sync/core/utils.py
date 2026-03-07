@@ -249,7 +249,10 @@ def format_date_mmddyyyy(value: Any) -> str | None:
 
 def to_priority_date(value: Any) -> str | None:
     """
-    Convert a date string to Priority's ISO 8601 format (YYYY-MM-DDT00:00:00+00:00).
+    Convert a date string to Priority's ISO 8601 format (YYYY-MM-DDT00:00:00Z).
+
+    Uses 'Z' suffix to match Priority's response format exactly, so that
+    string comparison during GET+compare optimization works correctly.
 
     Handles: MM/DD/YY, MM/DD/YYYY, YYYY-MM-DD
     Returns None if value is empty.
@@ -266,7 +269,7 @@ def to_priority_date(value: Any) -> str | None:
     for fmt in ("%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d"):
         try:
             parsed = _dt.strptime(text[:10], fmt)
-            return parsed.strftime("%Y-%m-%dT00:00:00+00:00")
+            return parsed.strftime("%Y-%m-%dT00:00:00Z")
         except ValueError:
             continue
 
