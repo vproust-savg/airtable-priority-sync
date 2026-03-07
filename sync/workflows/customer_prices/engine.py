@@ -129,6 +129,38 @@ class CustomerPriceSyncEngine(BaseSyncEngine):
     def _get_airtable_key_field_writable(self) -> str:
         return AIRTABLE_KEY_FIELD_WRITABLE
 
+    # ── Pre-fetch existing price entries for comparison ──────────────────
+
+    def _pre_a2p_batch(
+        self, records: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """
+        Pre-fetch existing PARTPRICE2 records for the 3 standard price list codes.
+        One GET per price list code (not per SKU) to minimize API calls.
+        """
+        context: dict[str, Any] = {}
+
+        existing_prices: dict[str, dict[str, dict[str, Any]]] = {}
+        for level in PRICE_LEVELS:
+            code = level["code"]
+            try:
+                existing = self.priority.get_subform(code, PRIORITY_ITEMS_SUBFORM)
+                by_part: dict[str, dict[str, Any]] = {}
+                for rec in existing:
+                    partname = str(rec.get("PARTNAME", "")).strip()
+                    if partname:
+                        by_part[partname] = rec
+                existing_prices[code] = by_part
+            except Exception as e:
+                logger.warning(
+                    "Failed to pre-fetch prices for PRICELIST('%s'): %s", code, e,
+                )
+                existing_prices[code] = {}
+
+        logger.info("Pre-fetched existing prices for %d price lists.", len(existing_prices))
+        context["existing_prices"] = existing_prices
+        return context
+
     # ── Override: row explosion sub-form sync ─────────────────────────────
 
     def _sync_subforms(
@@ -144,8 +176,7 @@ class CustomerPriceSyncEngine(BaseSyncEngine):
         if the corresponding price field has a value, create a
         PARTPRICE2 entry on PRICELIST('{code}').
 
-        The 'key' from the main entity processing is the Price List Code
-        from the Airtable record, but we override it per level.
+        Compares with pre-fetched existing prices before writing.
         """
         # Extract the SKU from the record
         raw_sku = airtable_fields.get("SKU Trim (EDI) (from Products)")
@@ -156,6 +187,7 @@ class CustomerPriceSyncEngine(BaseSyncEngine):
             return
 
         quantity = clean(airtable_fields.get("Quantity"))
+        existing_prices = context.get("existing_prices", {})
 
         for level in PRICE_LEVELS:
             price_field = level["price_field"]
@@ -182,6 +214,24 @@ class CustomerPriceSyncEngine(BaseSyncEngine):
                     )
                 )
                 continue
+
+            # ── Compare with existing prices ──
+            existing_for_list = existing_prices.get(list_code, {})
+            current = existing_for_list.get(sku)
+            if current:
+                has_changes = any(
+                    str(v).strip() != str(current.get(k) or "").strip()
+                    for k, v in payload.items() if k != "PARTNAME"
+                )
+                if not has_changes:
+                    result.subform_results.append(
+                        SubformResult(
+                            subform=f"{PRIORITY_ITEMS_SUBFORM}@{list_code}",
+                            action="SKIPPED",
+                            detail=f"{sku} unchanged",
+                        )
+                    )
+                    continue
 
             try:
                 self.priority.deep_patch_subform(

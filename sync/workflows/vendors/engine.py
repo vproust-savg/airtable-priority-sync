@@ -347,11 +347,10 @@ class VendorSyncEngine(BaseSyncEngine):
         label: str,
     ) -> None:
         """
-        Build payloads from Airtable records and sync to a Priority sub-form
-        using deep PATCH on the parent SUPPLIERS entity.
+        Build payloads from Airtable records, compare with existing Priority
+        data, and only write changed records via deep PATCH.
         """
         if not airtable_records:
-            logger.debug("No %s found for vendor %s, skipping.", label, key)
             return
 
         # Build sub-form payloads
@@ -367,7 +366,6 @@ class VendorSyncEngine(BaseSyncEngine):
                 payloads.append(payload)
 
         if not payloads:
-            logger.debug("No %s data to sync for vendor %s.", label, key)
             return
 
         if dry_run:
@@ -380,30 +378,110 @@ class VendorSyncEngine(BaseSyncEngine):
             )
             return
 
+        # ── GET existing sub-form records and compare ──
+        try:
+            existing = self.priority.get_subform(key, subform_name)
+        except Exception as e:
+            logger.warning(
+                "%s: failed to GET existing %s, will write all: %s",
+                key, label, e,
+            )
+            existing = []
+
+        existing_by_key: dict[str, dict[str, Any]] = {}
+        for rec in existing:
+            mk = str(rec.get(match_field, "")).strip()
+            if mk:
+                existing_by_key[mk] = rec
+
+        records_to_push: list[dict[str, Any]] = []
+        created, updated, skipped = 0, 0, 0
+
+        for desired in payloads:
+            match_val = str(desired.get(match_field, "")).strip()
+            if not match_val:
+                records_to_push.append(desired)
+                created += 1
+                continue
+
+            current = existing_by_key.get(match_val)
+            if not current:
+                records_to_push.append(desired)
+                created += 1
+            else:
+                has_changes = any(
+                    str(v).strip() != str(current.get(k) or "").strip()
+                    for k, v in desired.items() if k != match_field
+                )
+                if has_changes:
+                    records_to_push.append(desired)
+                    updated += 1
+                else:
+                    skipped += 1
+
+        if not records_to_push:
+            if skipped:
+                result.subform_results.append(
+                    SubformResult(
+                        subform=subform_name,
+                        action="SKIPPED",
+                        detail=f"All {skipped} {label} unchanged",
+                    )
+                )
+            return
+
+        # ── Deep PATCH only changed records (with per-record retry) ──
+        detail = f"c:{created} u:{updated} s:{skipped}"
         try:
             self.priority.deep_patch_subform(
                 key_value=key,
                 subform_name=subform_name,
-                records=payloads,
+                records=records_to_push,
             )
             result.subform_results.append(
                 SubformResult(
                     subform=subform_name,
                     action="UPDATED",
-                    detail=f"Synced {len(payloads)} {label}",
+                    detail=f"Synced {len(records_to_push)} {label} ({detail})",
                 )
             )
-        except Exception as e:
-            logger.error(
-                "Failed to sync %s for vendor %s: %s", label, key, e,
+        except Exception as batch_err:
+            logger.warning(
+                "%s: batch %s failed (%s) — retrying %d records individually",
+                key, label, batch_err, len(records_to_push),
             )
-            result.subform_results.append(
-                SubformResult(
-                    subform=subform_name,
-                    action="ERROR",
-                    detail=str(e),
+            ok, failed = 0, 0
+            for payload in records_to_push:
+                try:
+                    self.priority.deep_patch_subform(
+                        key_value=key,
+                        subform_name=subform_name,
+                        records=[payload],
+                    )
+                    ok += 1
+                except Exception as e:
+                    failed += 1
+                    record_name = payload.get(match_field, "unknown")
+                    logger.error(
+                        "%s: failed to sync %s '%s': %s",
+                        key, label, record_name, e,
+                    )
+            if ok:
+                result.subform_results.append(
+                    SubformResult(
+                        subform=subform_name,
+                        action="PARTIAL",
+                        detail=f"Synced {ok}/{ok + failed} {label} ({failed} failed)",
+                    )
                 )
-            )
+            if failed:
+                result.subform_results.append(
+                    SubformResult(
+                        subform=subform_name,
+                        action="ERROR",
+                        detail=f"{failed}/{ok + failed} {label} failed",
+                    )
+                )
 
     def _fetch_from_table(
         self,
@@ -607,6 +685,31 @@ class VendorSyncEngine(BaseSyncEngine):
                 )
             )
             return
+
+        # ── GET existing bank records and compare ──
+        try:
+            existing = self.priority_fncsup.get_subform(key, ACCOUNTBANK_SUBFORM_NAME)
+        except Exception as e:
+            logger.warning(
+                "%s: failed to GET existing bank records, will write: %s", key, e,
+            )
+            existing = []
+
+        if existing:
+            current = existing[0]  # typically one bank record
+            has_changes = any(
+                str(v).strip() != str(current.get(k) or "").strip()
+                for k, v in bank_payload.items()
+            )
+            if not has_changes:
+                result.subform_results.append(
+                    SubformResult(
+                        subform=ACCOUNTBANK_SUBFORM_NAME,
+                        action="SKIPPED",
+                        detail="Bank details unchanged",
+                    )
+                )
+                return
 
         try:
             self.priority_fncsup.deep_patch_subform(

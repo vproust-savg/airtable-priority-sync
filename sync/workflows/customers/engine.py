@@ -85,6 +85,7 @@ from sync.workflows.customers.subform_mapping import (
     DELIVERY_DAYS_AIRTABLE_FIELDS,
     PRICE_LIST_AIRTABLE_FIELDS,
     PRICE_LIST_FIELD_MAP,
+    PRICE_LIST_MATCH_FIELD,
     SITES_AIRTABLE_FIELDS,
     SITES_FIELD_MAP,
     SITES_MATCH_FIELD,
@@ -357,6 +358,7 @@ class CustomerSyncEngine(BaseSyncEngine):
             subform_name=CONTACTS_SUBFORM_NAME,
             airtable_records=filtered_contacts,
             field_map=CONTACTS_FIELD_MAP,
+            match_field=CONTACTS_MATCH_FIELD,
             result=result,
             dry_run=dry_run,
             label="contacts",
@@ -369,6 +371,7 @@ class CustomerSyncEngine(BaseSyncEngine):
             subform_name=SITES_SUBFORM_NAME,
             airtable_records=sites,
             field_map=SITES_FIELD_MAP,
+            match_field=SITES_MATCH_FIELD,
             result=result,
             dry_run=dry_run,
             label="sites",
@@ -381,6 +384,7 @@ class CustomerSyncEngine(BaseSyncEngine):
             subform_name=SPECIAL_PRICES_SUBFORM_NAME,
             airtable_records=prices,
             field_map=SPECIAL_PRICES_FIELD_MAP,
+            match_field=SPECIAL_PRICES_MATCH_FIELD,
             result=result,
             dry_run=dry_run,
             label="special prices",
@@ -393,6 +397,7 @@ class CustomerSyncEngine(BaseSyncEngine):
             subform_name=PRICE_LIST_SUBFORM_NAME,
             airtable_records=plists,
             field_map=PRICE_LIST_FIELD_MAP,
+            match_field=PRICE_LIST_MATCH_FIELD,
             result=result,
             dry_run=dry_run,
             label="price lists",
@@ -469,17 +474,65 @@ class CustomerSyncEngine(BaseSyncEngine):
             )
             return
 
+        # ── GET existing delivery days and compare ──
+        try:
+            existing = self.priority.get_subform(key, WEEKDAY_SUBFORM_NAME)
+        except Exception as e:
+            logger.warning(
+                "%s: failed to GET existing delivery days, will write all: %s",
+                key, e,
+            )
+            existing = []
+
+        existing_by_day: dict[str, dict[str, Any]] = {}
+        for rec in existing:
+            day = str(rec.get("WEEKDAY", "")).strip()
+            if day:
+                existing_by_day[day] = rec
+
+        records_to_push: list[dict[str, Any]] = []
+        created, updated, skipped = 0, 0, 0
+
+        for desired in payloads:
+            day = str(desired.get("WEEKDAY", "")).strip()
+            current = existing_by_day.get(day)
+            if not current:
+                records_to_push.append(desired)
+                created += 1
+            else:
+                has_changes = any(
+                    str(v).strip() != str(current.get(k) or "").strip()
+                    for k, v in desired.items() if k != "WEEKDAY"
+                )
+                if has_changes:
+                    records_to_push.append(desired)
+                    updated += 1
+                else:
+                    skipped += 1
+
+        if not records_to_push:
+            if skipped:
+                result.subform_results.append(
+                    SubformResult(
+                        subform=WEEKDAY_SUBFORM_NAME,
+                        action="SKIPPED",
+                        detail=f"All {skipped} delivery days unchanged",
+                    )
+                )
+            return
+
+        detail = f"c:{created} u:{updated} s:{skipped}"
         try:
             self.priority.deep_patch_subform(
                 key_value=key,
                 subform_name=WEEKDAY_SUBFORM_NAME,
-                records=payloads,
+                records=records_to_push,
             )
             result.subform_results.append(
                 SubformResult(
                     subform=WEEKDAY_SUBFORM_NAME,
                     action="UPDATED",
-                    detail=f"Synced {len(payloads)} delivery days",
+                    detail=f"Synced {len(records_to_push)} delivery days ({detail})",
                 )
             )
         except Exception as e:
@@ -617,13 +670,14 @@ class CustomerSyncEngine(BaseSyncEngine):
         subform_name: str,
         airtable_records: list[dict[str, Any]],
         field_map: dict[str, str],
+        match_field: str,
         result: SyncRecord,
         dry_run: bool,
         label: str,
     ) -> None:
         """
-        Build payloads from Airtable records and sync to a Priority sub-form
-        using deep PATCH on the parent CUSTOMERS entity.
+        Build payloads from Airtable records, compare with existing Priority
+        data, and only write changed records via deep PATCH.
         """
         if not airtable_records:
             return
@@ -652,27 +706,81 @@ class CustomerSyncEngine(BaseSyncEngine):
             )
             return
 
+        # ── GET existing sub-form records and compare ──
+        try:
+            existing = self.priority.get_subform(key, subform_name)
+        except Exception as e:
+            logger.warning(
+                "%s: failed to GET existing %s, will write all: %s",
+                key, label, e,
+            )
+            existing = []
+
+        existing_by_key: dict[str, dict[str, Any]] = {}
+        for rec in existing:
+            mk = str(rec.get(match_field, "")).strip()
+            if mk:
+                existing_by_key[mk] = rec
+
+        records_to_push: list[dict[str, Any]] = []
+        created, updated, skipped = 0, 0, 0
+
+        for desired in payloads:
+            match_val = str(desired.get(match_field, "")).strip()
+            if not match_val:
+                records_to_push.append(desired)
+                created += 1
+                continue
+
+            current = existing_by_key.get(match_val)
+            if not current:
+                records_to_push.append(desired)
+                created += 1
+            else:
+                has_changes = any(
+                    str(v).strip() != str(current.get(k) or "").strip()
+                    for k, v in desired.items() if k != match_field
+                )
+                if has_changes:
+                    records_to_push.append(desired)
+                    updated += 1
+                else:
+                    skipped += 1
+
+        if not records_to_push:
+            if skipped:
+                result.subform_results.append(
+                    SubformResult(
+                        subform=subform_name,
+                        action="SKIPPED",
+                        detail=f"All {skipped} {label} unchanged",
+                    )
+                )
+            return
+
+        # ── Deep PATCH only changed records (with per-record retry) ──
+        detail = f"c:{created} u:{updated} s:{skipped}"
         try:
             self.priority.deep_patch_subform(
                 key_value=key,
                 subform_name=subform_name,
-                records=payloads,
+                records=records_to_push,
             )
             result.subform_results.append(
                 SubformResult(
                     subform=subform_name,
                     action="UPDATED",
-                    detail=f"Synced {len(payloads)} {label}",
+                    detail=f"Synced {len(records_to_push)} {label} ({detail})",
                 )
             )
         except Exception as batch_err:
             # Batch failed — retry each record individually so good ones still sync
             logger.warning(
                 "%s: batch %s failed (%s) — retrying %d records individually",
-                key, label, batch_err, len(payloads),
+                key, label, batch_err, len(records_to_push),
             )
             ok, failed = 0, 0
-            for payload in payloads:
+            for payload in records_to_push:
                 try:
                     self.priority.deep_patch_subform(
                         key_value=key,
@@ -682,7 +790,7 @@ class CustomerSyncEngine(BaseSyncEngine):
                     ok += 1
                 except Exception as e:
                     failed += 1
-                    record_name = payload.get("NAME", "unknown")
+                    record_name = payload.get(match_field, "unknown")
                     logger.error(
                         "%s: failed to sync %s '%s': %s",
                         key, label, record_name, e,

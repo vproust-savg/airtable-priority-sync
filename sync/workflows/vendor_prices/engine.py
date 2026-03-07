@@ -131,6 +131,48 @@ class VendorPriceSyncEngine(BaseSyncEngine):
     def _get_airtable_key_field_writable(self) -> str:
         return AIRTABLE_KEY_FIELD_WRITABLE
 
+    # ── Pre-fetch existing price entries for comparison ──────────────────
+
+    def _pre_a2p_batch(
+        self, records: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """
+        Pre-fetch existing PARTPRICE2 records for all price lists being synced.
+        One GET per price list code (not per SKU) to minimize API calls.
+        """
+        context: dict[str, Any] = {}
+
+        # Collect unique price list codes from records
+        pl_codes: set[str] = set()
+        for rec in records:
+            fields = rec.get("fields", {})
+            code = clean(fields.get("Price List Code"))
+            if not code and isinstance(fields.get("Price List Code"), list):
+                code = clean(fields["Price List Code"][0])
+            if code:
+                pl_codes.add(code)
+
+        # Fetch existing PARTPRICE2 for each price list
+        existing_prices: dict[str, dict[str, dict[str, Any]]] = {}
+        for code in pl_codes:
+            try:
+                existing = self.priority.get_subform(code, PRIORITY_ITEMS_SUBFORM)
+                by_part: dict[str, dict[str, Any]] = {}
+                for rec in existing:
+                    partname = str(rec.get("PARTNAME", "")).strip()
+                    if partname:
+                        by_part[partname] = rec
+                existing_prices[code] = by_part
+            except Exception as e:
+                logger.warning(
+                    "Failed to pre-fetch prices for PRICELIST('%s'): %s", code, e,
+                )
+                existing_prices[code] = {}
+
+        logger.info("Pre-fetched existing prices for %d price lists.", len(existing_prices))
+        context["existing_prices"] = existing_prices
+        return context
+
     # ── Override: sub-form sync as the main A→P pattern ──────────────────
 
     def _sync_subforms(
@@ -145,8 +187,7 @@ class VendorPriceSyncEngine(BaseSyncEngine):
         The main sync logic for vendor price lists lives here.
         Each record maps to a PARTPRICE2 entry on the PRICELIST(key).
 
-        We build the sub-form payload from the Airtable record's fields.
-        The deep_patch_subform call adds/updates the price entry.
+        Compares with pre-fetched existing prices before writing.
         """
         # Build the PARTPRICE2 payload from this record
         payload: dict[str, Any] = {}
@@ -174,6 +215,27 @@ class VendorPriceSyncEngine(BaseSyncEngine):
             )
             return
 
+        # ── Compare with existing prices ──
+        partname = str(payload.get("PARTNAME", "")).strip()
+        existing_prices = context.get("existing_prices", {})
+        existing_for_list = existing_prices.get(key, {})
+        current = existing_for_list.get(partname)
+
+        if current:
+            has_changes = any(
+                str(v).strip() != str(current.get(k) or "").strip()
+                for k, v in payload.items() if k != "PARTNAME"
+            )
+            if not has_changes:
+                result.subform_results.append(
+                    SubformResult(
+                        subform=PRIORITY_ITEMS_SUBFORM,
+                        action="SKIPPED",
+                        detail=f"{partname} unchanged",
+                    )
+                )
+                return
+
         try:
             self.priority.deep_patch_subform(
                 key_value=key,
@@ -184,7 +246,7 @@ class VendorPriceSyncEngine(BaseSyncEngine):
                 SubformResult(
                     subform=PRIORITY_ITEMS_SUBFORM,
                     action="UPDATED",
-                    detail=f"Price entry: {payload.get('PARTNAME', '?')} = {payload.get('PRICE', '?')}",
+                    detail=f"Price entry: {partname} = {payload.get('PRICE', '?')}",
                 )
             )
         except Exception as e:
