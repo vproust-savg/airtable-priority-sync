@@ -247,6 +247,32 @@ def format_date_mmddyyyy(value: Any) -> str | None:
     return text  # Return as-is if no format matched
 
 
+def to_priority_date(value: Any) -> str | None:
+    """
+    Convert a date string to Priority's ISO 8601 format (YYYY-MM-DDT00:00:00+00:00).
+
+    Handles: MM/DD/YY, MM/DD/YYYY, YYYY-MM-DD
+    Returns None if value is empty.
+    """
+    from datetime import datetime as _dt
+
+    extracted = extract_value(value)
+    if extracted is None:
+        return None
+    text = str(extracted).strip()
+    if not text:
+        return None
+
+    for fmt in ("%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d"):
+        try:
+            parsed = _dt.strptime(text[:10], fmt)
+            return parsed.strftime("%Y-%m-%dT00:00:00+00:00")
+        except ValueError:
+            continue
+
+    return text  # Return as-is if no format matched
+
+
 def priority_yn(value: Any) -> str | None:
     """
     Convert Priority Y/N values to Airtable Yes/No.

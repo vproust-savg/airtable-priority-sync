@@ -39,7 +39,7 @@ from sync.core.config import (
 from sync.core.models import FieldMapping, SubformResult, SyncError, SyncMode, SyncRecord
 from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
-from sync.core.utils import abbreviate_day, clean, format_time_24h
+from sync.core.utils import abbreviate_day, clean, format_price, format_time_24h, to_priority_date
 from sync.workflows.customers.config import (
     AIRTABLE_CONTACTS_TABLE_ID,
     AIRTABLE_CONTACTS_VIEW,
@@ -388,6 +388,11 @@ class CustomerSyncEngine(BaseSyncEngine):
             result=result,
             dry_run=dry_run,
             label="special prices",
+            transforms={
+                "FROMDATE": to_priority_date,
+                "EXPIRYDATE": to_priority_date,
+                "PRICE": format_price,
+            },
         )
 
         # 4. Price Lists
@@ -674,10 +679,14 @@ class CustomerSyncEngine(BaseSyncEngine):
         result: SyncRecord,
         dry_run: bool,
         label: str,
+        transforms: dict[str, Any] | None = None,
     ) -> None:
         """
         Build payloads from Airtable records, compare with existing Priority
         data, and only write changed records via deep PATCH.
+
+        transforms: optional dict of Priority field name → callable to apply
+                    after extracting the value (e.g., date conversion).
         """
         if not airtable_records:
             return
@@ -687,8 +696,13 @@ class CustomerSyncEngine(BaseSyncEngine):
             payload: dict[str, Any] = {}
             for at_field, p_field in field_map.items():
                 raw = at_record.get(at_field)
-                value = self._clean_lookup(raw)
-                if value:
+                if transforms and p_field in transforms:
+                    # Apply transform on raw value (e.g., format_price
+                    # needs numeric input, to_priority_date needs string)
+                    value = transforms[p_field](raw)
+                else:
+                    value = self._clean_lookup(raw)
+                if value is not None:
                     payload[p_field] = value
             if payload:
                 payloads.append(payload)
