@@ -378,6 +378,48 @@ Priority stores boolean-like fields as `"Y"` / `"N"`. Airtable singleSelect fiel
 
 ---
 
+## GET+Compare — Write Quota Optimization (CRITICAL)
+
+Priority has a **10,000 writes/month** limit (POST + PATCH). Reads (GET) are free. The engine always GETs existing data and compares before writing. **If the comparison is wrong, every sync run wastes writes on unchanged data.**
+
+### Comparison Code Paths
+
+| Path | Location | How It Compares |
+|------|----------|----------------|
+| **Main entity A→P** | `base_engine.py::build_patch_body()` | Type-aware: float epsilon, int exact, string stripped |
+| **Main entity P→A** | `base_engine.py::build_airtable_patch()` | Same type-aware logic |
+| **Secondary entities** | `_sync_secondary_entity()` in each engine | Uses `values_equal()` |
+| **Sub-forms** | `_sync_one_subform()`, price lists, bins, etc. | Uses `values_equal()` |
+| **Priority client sub-forms** | `priority_client.py` (allergens, shelf lives) | Uses `values_equal()` |
+
+### The `values_equal()` Rule
+
+**ALWAYS use `values_equal(a, b)` from `sync/core/utils.py` when comparing transformed Airtable values against Priority GET responses.** Never use raw `str()` comparison — it causes false positives:
+
+```python
+# WRONG — causes unnecessary writes:
+if str(new_value).strip() != str(old_value or "").strip():  # "5.0" != "5" → false positive
+
+# CORRECT — type-aware comparison:
+if not values_equal(new_value, old_value):  # float(5.0) == int(5) → True, no write
+```
+
+`values_equal()` handles:
+- `float(5.0)` vs `int(5)` → equal (numeric comparison with epsilon 0.001)
+- `str("9.73")` vs `float(9.73)` → equal (numeric detection on either side)
+- `None` vs `""` → equal (both empty)
+- `int(0)` vs `None` → NOT equal (0 is a real value)
+- String fields → stripped string comparison (same as before)
+
+### When Adding New Comparison Code
+
+Any time you write code that compares a desired payload value against an existing Priority value:
+1. Import `values_equal` from `sync.core.utils`
+2. Use `not values_equal(desired, existing)` instead of `str(a) != str(b)`
+3. This applies to ALL sub-forms, secondary entities, and any custom comparison loops
+
+---
+
 ## Claude Workflow Rules
 
 ### 1. Plan Mode (Non-Negotiable)
@@ -440,7 +482,7 @@ sync/
 │   ├── priority_client.py # Entity CRUD + sub-form ops (environment-aware)
 │   ├── sync_log_client.py # Writes run summaries to Airtable Sync Logs base
 │   ├── logger_setup.py    # Logging config + console formatting
-│   └── utils.py           # clean(), format_price(), to_int(), to_float(), priority_yn()
+│   └── utils.py           # clean(), format_price(), to_int(), to_float(), priority_yn(), values_equal()
 ├── workflows/             # Per-entity workflow configs
 │   ├── products/          # LOGPART + FNCPART + PRDPART — merged engine
 │   ├── fncpart/           # FNCPART — field_mapping imported by products (engine unused)

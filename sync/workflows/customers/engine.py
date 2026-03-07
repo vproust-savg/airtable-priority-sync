@@ -4,18 +4,16 @@ Customers sync engine: CUSTOMERS + FNCCUST + sub-forms.
 Subclasses BaseSyncEngine with CUSTOMERS-specific configuration.
 Merged workflow syncs both CUSTOMERS (main entity) and FNCCUST (secondary entity).
 
-Handles 6 accessible sub-forms from 4 Airtable tables:
-  - Customer Contacts  → CUSTPERSONNEL_SUBFORM (separate table)
-  - Customer Sites     → CUSTDESTS_SUBFORM (separate table)
-  - Special Prices     → CUSTPARTPRICE_SUBFORM (separate table)
-  - Price List         → CUSTPLIST_SUBFORM (Customers table, different view)
-  - Delivery Days      → CUSTWEEKDAY_SUBFORM (Customers table, different view)
-                         Requires row explosion + day→integer conversion + time conversion
-  - Credit Application → CUSTEXTFILE_SUBFORM (attachment download + base64 upload)
-
-NOT accessible via API (return 404):
-  - CUSTOMERSTEXT_SUBFORM (internal remarks)
-  - CUSTSHIPTEXT_SUBFORM (shipment remarks)
+Handles 8 accessible sub-forms from 4 Airtable tables:
+  - Customer Contacts   → CUSTPERSONNEL_SUBFORM (separate table)
+  - Customer Sites      → CUSTDESTS_SUBFORM (separate table)
+  - Special Prices      → CUSTPARTPRICE_SUBFORM (separate table)
+  - Price List          → CUSTPLIST_SUBFORM (Customers table, different view)
+  - Delivery Days       → CUSTWEEKDAY_SUBFORM (Customers table, different view)
+                          Requires row explosion + day→integer conversion + time conversion
+  - Credit Application  → CUSTEXTFILE_SUBFORM (attachment download + base64 upload)
+  - Shipment Remarks    → CUSTSHIPTEXT_SUBFORM (Pattern A — single entity, TEXT field)
+  - Internal Remarks    → CUSTOMERSTEXT_SUBFORM (Pattern A — single entity, TEXT field)
 """
 
 from __future__ import annotations
@@ -39,7 +37,7 @@ from sync.core.config import (
 from sync.core.models import FieldMapping, SubformResult, SyncError, SyncMode, SyncRecord
 from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
-from sync.core.utils import clean, day_to_priority_int, format_price, format_time_24h, to_priority_date, values_equal
+from sync.core.utils import clean, day_to_priority_int, format_price, format_time_24h, strip_html, to_priority_date, values_equal
 from sync.workflows.customers.config import (
     AIRTABLE_CONTACTS_TABLE_ID,
     AIRTABLE_CONTACTS_VIEW,
@@ -59,7 +57,11 @@ from sync.workflows.customers.config import (
     CREDIT_APP_AIRTABLE_FIELD,
     CREDIT_APP_EXTFILEDES_PREFIX,
     CREDIT_APP_SUBFORM_NAME,
+    CUSTTEXT_AIRTABLE_FIELD,
+    CUSTTEXT_SUBFORM_NAME,
     PRICE_LIST_SUBFORM_NAME,
+    SHIPTEXT_AIRTABLE_FIELD,
+    SHIPTEXT_SUBFORM_NAME,
     PRIORITY_ENTITY,
     PRIORITY_FNCCUST_ENTITY,
     PRIORITY_KEY_FIELD,
@@ -304,7 +306,9 @@ class CustomerSyncEngine(BaseSyncEngine):
         4. Price Lists → CUSTPLIST_SUBFORM
         5. Delivery Days → CUSTWEEKDAY_SUBFORM (with row explosion)
         6. Credit Application → CUSTEXTFILE_SUBFORM (file upload)
-        7. FNCCUST (Financial Parameters — secondary entity)
+        7. Shipment Remarks → CUSTSHIPTEXT_SUBFORM (Pattern A text)
+        8. Internal Remarks → CUSTOMERSTEXT_SUBFORM (Pattern A text)
+        9. FNCCUST (Financial Parameters — secondary entity)
         """
         # 1. Contacts
         contacts = context.get("contacts_by_cust", {}).get(key, [])
@@ -415,7 +419,25 @@ class CustomerSyncEngine(BaseSyncEngine):
         # 6. Credit Application document → CUSTEXTFILE_SUBFORM
         self._sync_credit_application(key, airtable_fields, result, dry_run)
 
-        # 7. FNCCUST (Financial Parameters — secondary entity)
+        # 7. Shipment Remarks → CUSTSHIPTEXT_SUBFORM (Pattern A)
+        self._sync_text_subform(
+            key, airtable_fields,
+            airtable_field_name=SHIPTEXT_AIRTABLE_FIELD,
+            subform_name=SHIPTEXT_SUBFORM_NAME,
+            result=result, dry_run=dry_run,
+            label="shipment remarks",
+        )
+
+        # 8. Internal Remarks → CUSTOMERSTEXT_SUBFORM (Pattern A)
+        self._sync_text_subform(
+            key, airtable_fields,
+            airtable_field_name=CUSTTEXT_AIRTABLE_FIELD,
+            subform_name=CUSTTEXT_SUBFORM_NAME,
+            result=result, dry_run=dry_run,
+            label="internal remarks",
+        )
+
+        # 9. FNCCUST (Financial Parameters — secondary entity)
         if not dry_run:
             self._sync_secondary_entity(
                 self.priority_fnccust, key, airtable_fields, result,
@@ -551,6 +573,75 @@ class CustomerSyncEngine(BaseSyncEngine):
                     detail=str(e),
                 )
             )
+
+    # ── Text sub-forms (Pattern A — single entity) ──────────────────────
+
+    def _sync_text_subform(
+        self,
+        key: str,
+        airtable_fields: dict[str, Any],
+        airtable_field_name: str,
+        subform_name: str,
+        result: SyncRecord,
+        dry_run: bool,
+        label: str,
+    ) -> None:
+        """
+        Sync a single-entity text sub-form (Pattern A).
+
+        Used for CUSTSHIPTEXT_SUBFORM (shipment remarks) and
+        CUSTOMERSTEXT_SUBFORM (internal remarks). These sub-forms have
+        a single TEXT field.
+
+        Priority wraps TEXT in HTML styling after PATCH, so comparison
+        uses strip_html() to avoid false positives (protecting write quota).
+        """
+        text = clean(airtable_fields.get(airtable_field_name))
+        if not text:
+            return
+
+        payload = {"TEXT": text}
+
+        if dry_run:
+            result.subform_results.append(SubformResult(
+                subform=subform_name, action="DRY_RUN",
+                detail=f"Would sync {label}",
+            ))
+            return
+
+        # GET existing and compare with HTML stripping
+        try:
+            existing = self.priority.get_subform(key, subform_name)
+            if existing:
+                current = existing[0] if isinstance(existing, list) else existing
+                existing_text = strip_html(str(current.get("TEXT") or ""))
+                if existing_text == text.strip():
+                    result.subform_results.append(SubformResult(
+                        subform=subform_name, action="SKIPPED",
+                        detail=f"{label} unchanged",
+                    ))
+                    return
+        except Exception as e:
+            logger.warning(
+                "%s: failed to GET %s, will write: %s", key, label, e,
+            )
+
+        # Write (POST if new, PATCH if changed)
+        try:
+            res = self.priority.upsert_single_subform(
+                key, subform_name, payload,
+            )
+            result.subform_results.append(SubformResult(
+                subform=subform_name, action=res["action"],
+                detail=f"{label}: {res['fields_changed']} fields",
+            ))
+            logger.debug("%s %s: %s", key, label, res["action"])
+        except Exception as e:
+            logger.error("%s: %s error: %s", key, label, e)
+            result.subform_results.append(SubformResult(
+                subform=subform_name, action="ERROR",
+                detail=str(e),
+            ))
 
     # ── Credit Application upload ────────────────────────────────────────
 

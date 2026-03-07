@@ -7,8 +7,8 @@ Maps Airtable fields from related tables to Priority sub-form fields:
   - Special Cust. Prices → CUSTPARTPRICE_SUBFORM
   - Price List → CUSTPLIST_SUBFORM (single field)
   - Delivery Days → CUSTWEEKDAY_SUBFORM (requires row explosion + transforms)
-  - Shipment Remarks → CUSTSHIPTEXT_SUBFORM (NOT accessible via API — 404)
-  - Internal Remarks → CUSTOMERSTEXT_SUBFORM (NOT accessible via API — 404)
+  - Shipment Remarks → CUSTSHIPTEXT_SUBFORM (Pattern A — single entity, TEXT field)
+  - Internal Remarks → CUSTOMERSTEXT_SUBFORM (Pattern A — single entity, TEXT field)
 """
 
 from __future__ import annotations

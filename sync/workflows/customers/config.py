@@ -43,8 +43,12 @@ SITES_SUBFORM_NAME = "CUSTDESTS_SUBFORM"
 CREDIT_APP_SUBFORM_NAME = "CUSTEXTFILE_SUBFORM"
 CREDIT_APP_EXTFILEDES_PREFIX = "Credit Application"
 CREDIT_APP_AIRTABLE_FIELD = "Credit Application"  # Attachment field
-# CUSTOMERSTEXT_SUBFORM → returns 404, cannot sync via API
-# CUSTSHIPTEXT_SUBFORM → returns 404, cannot sync via API
+SHIPTEXT_SUBFORM_NAME = "CUSTSHIPTEXT_SUBFORM"
+CUSTTEXT_SUBFORM_NAME = "CUSTOMERSTEXT_SUBFORM"
+
+# Airtable fields for text sub-forms (in main sync view — no extra fetch needed)
+SHIPTEXT_AIRTABLE_FIELD = "Cleaned Delivery Instructions"
+CUSTTEXT_AIRTABLE_FIELD = "Billing_Instructions_Output"
 
 # ── Field IDs ──────────────────────────────────────────────────────────────────
 AIRTABLE_KEY_FIELD_ID = "fldsnRoMbOuU26Ezc"  # Priority Cust. ID

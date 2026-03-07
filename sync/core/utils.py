@@ -304,6 +304,27 @@ def priority_yn(value: Any) -> str | None:
     return v  # pass through other values (e.g. already "Yes"/"No")
 
 
+def strip_html(text: str) -> str:
+    """
+    Strip HTML tags and normalize whitespace for text comparison.
+
+    Priority wraps TEXT sub-form fields in HTML styling after PATCH
+    (e.g., <style>...</style><p><p dir=ltr>actual text<br></p></p>).
+    This function strips all that to get the plain text for comparison,
+    so GET+compare optimization doesn't trigger false positives.
+    """
+    import re as _re
+
+    result = _re.sub(r"<style[^>]*>.*?</style>", "", text, flags=_re.DOTALL)  # Remove <style> blocks
+    result = _re.sub(r"<[^>]+>", "", result)         # Remove HTML tags
+    result = result.replace("&nbsp;", " ")           # Normalize HTML spaces
+    result = result.replace("&amp;", "&")            # Decode ampersands
+    result = result.replace("&lt;", "<")             # Decode less-than
+    result = result.replace("&gt;", ">")             # Decode greater-than
+    result = _re.sub(r"\s+", " ", result).strip()    # Collapse whitespace
+    return result
+
+
 def values_equal(a: Any, b: Any) -> bool:
     """Type-aware comparison for GET+compare optimization.
 

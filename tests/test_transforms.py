@@ -12,6 +12,7 @@ from sync.core.utils import (
     format_price,
     format_time_24h,
     priority_yn,
+    strip_html,
     to_float,
     to_int,
 )
@@ -223,3 +224,33 @@ class TestFormatDateMMDDYYYY:
 
     def test_us_format(self):
         assert format_date_mmddyyyy("03/05/2026") == "03/05/2026"
+
+
+# ── strip_html ───────────────────────────────────────────────────────────
+
+class TestStripHtml:
+    def test_plain_text(self):
+        assert strip_html("Hello world") == "Hello world"
+
+    def test_br_tag(self):
+        assert strip_html("Park in front of store.<br>") == "Park in front of store."
+
+    def test_priority_styled_html(self):
+        html = (
+            '<style> p,div,li {margin:0cm;font-size:10.0pt;'
+            "font-family:'Verdana';}li > font > p {display: inline-block;}"
+            '</style><p ><p dir=ltr>Park in front of store.<br></p> </p> '
+        )
+        assert strip_html(html) == "Park in front of store."
+
+    def test_empty_string(self):
+        assert strip_html("") == ""
+
+    def test_nbsp(self):
+        assert strip_html("Hello&nbsp;world") == "Hello world"
+
+    def test_html_entities(self):
+        assert strip_html("A &amp; B &lt; C &gt; D") == "A & B < C > D"
+
+    def test_whitespace_collapse(self):
+        assert strip_html("  too   many   spaces  ") == "too many spaces"
