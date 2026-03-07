@@ -99,6 +99,7 @@ class FieldMapping(BaseModel):
     field_type: Literal["str", "float", "int", "linked_record"] = "str"
     max_length: int | None = None
     create_only: bool = False  # If True, only sent on POST (create), not PATCH (update)
+    p2a_write_if_empty: bool = False  # P→A only: only write if Airtable field is currently empty
     lookup: LookupConfig | None = None  # For linked-table reverse lookups (P→A only)
     linked_record: LinkedRecordConfig | None = None  # For Airtable linked record fields (P→A only)
 

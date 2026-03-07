@@ -11,7 +11,7 @@ Only writable fields are included in P2A_FIELD_MAP.
 
 from __future__ import annotations
 
-from sync.core.models import FieldMapping
+from sync.core.models import FieldMapping, LookupConfig
 
 # ── FNCCUST field maps (imported for merged workflow) ────────────────────────
 from sync.workflows.fnccust.field_mapping import (
@@ -217,29 +217,19 @@ A2P_FIELD_MAP: list[FieldMapping] = [
 # ═════════════════════════════════════════════════════════════════════════════
 # P→A (Priority → Airtable) — REVERSE DIRECTION
 # ═════════════════════════════════════════════════════════════════════════════
-# Limited to writable Airtable fields only.
+# Writable fields — directly mapped from Priority to Airtable.
 #
-# Excluded (formula — read-only):
-#   Priority Cust. ID, Sales Rep Number, Cust Group Code, Payment Terms Code,
-#   Curr, Country, Tax Code, Shipment Code, Rekki Output (4)
+# Three categories:
+# 1. Always-overwrite: Priority value replaces Airtable value
+# 2. Linked-table lookups: code → description via LookupConfig (Priority superior)
+# 3. Write-if-empty (p2a_write_if_empty=True): only populate if Airtable field empty
 #
-# Excluded (aiText — read-only):
-#   Business Name Output, Website Output, Billing Address Line 1/2/City Output,
-#   Full State Name, Billing Address_Zip Code, Billing_Legal Name Output
-#
-# Excluded (multipleLookupValues — read-only):
-#   Zone Code, Dist. Route Code
-#
-# Writable fields:
-#   - Priority Customer Status (singleSelect)
-#   - Credit Limit (number)
-#   - Payment Method (1) (singleSelect)
-#   - Are you part of Hilton? (2) (singleSelect)
-#   - Hilton Inncode (3) (singleLineText)
-#   - Carrier Account Number (5) (multilineText)
-#   - Approval_Before_Charging (singleSelect)
+# Skipped (no need to sync): SPEC4 (Rekki), CODE (Curr), TAXCODE
+# Deferred (harder): ZONECODE, DISTRLINECODE, STCODE
+# Address fields: consolidated into Billing Address Input (in engine, not here)
 
 P2A_FIELD_MAP: list[FieldMapping] = [
+    # ── Always-overwrite fields ───────────────────────────────────────────
     FieldMapping(
         airtable_field="Priority Customer Status",
         airtable_field_id="fldLhntR45Memi1na",
@@ -289,6 +279,70 @@ P2A_FIELD_MAP: list[FieldMapping] = [
         transform="clean",
         field_type="str",
     ),
+    # ── Linked-table lookups (Priority data is superior — always overwrite) ─
+    # NOTE: AGENTS, CTYPE, PAY need API access enabled in Priority.
+    # Until enabled, fetch_lookup_table() returns {} and the raw code is written.
+    FieldMapping(
+        airtable_field="Account Executive",
+        airtable_field_id="fldNq5gGxwvcwgiWr",
+        priority_field="AGENTCODE",
+        transform="priority_lookup",
+        field_type="str",
+        lookup=LookupConfig(
+            entity="AGENTS",
+            code_field="AGENTCODE",
+            desc_field="AGENTNAME",
+        ),
+    ),
+    FieldMapping(
+        airtable_field="Business Type",
+        airtable_field_id="fldlwyGJn56BZjU3r",
+        priority_field="CTYPECODE",
+        transform="priority_lookup",
+        field_type="str",
+        lookup=LookupConfig(
+            entity="CTYPE",
+            code_field="CTYPECODE",
+            desc_field="CTYPENAME",
+        ),
+    ),
+    FieldMapping(
+        airtable_field="Payment Terms",
+        airtable_field_id="fldtJbcuxychfBkSs",
+        priority_field="PAYCODE",
+        transform="priority_lookup",
+        field_type="str",
+        lookup=LookupConfig(
+            entity="PAY",
+            code_field="PAYCODE",
+            desc_field="PAYDES",
+        ),
+    ),
+    # ── Write-if-empty fields (only populate if Airtable field is empty) ──
+    FieldMapping(
+        airtable_field="Business Name Input",
+        airtable_field_id="fldd61qbZI7L3KCg5",
+        priority_field="CUSTDES",
+        transform="clean",
+        field_type="str",
+        p2a_write_if_empty=True,
+    ),
+    FieldMapping(
+        airtable_field="Website Input",
+        airtable_field_id="fldNoV5ycIyHJVIfP",
+        priority_field="HOSTNAME",
+        transform="clean",
+        field_type="str",
+        p2a_write_if_empty=True,
+    ),
+    FieldMapping(
+        airtable_field="Billing_Legal Name Input",
+        airtable_field_id="fldZaL0gBirbtwsB7",
+        priority_field="CUSTDESLONG",
+        transform="clean",
+        field_type="str",
+        p2a_write_if_empty=True,
+    ),
 ]
 
 
@@ -320,6 +374,8 @@ P2A_AIRTABLE_FIELDS_TO_FETCH: list[str] = (
         "Last Synced from Priority",
         "Last Synced to Priority",
         "Priority UDATE",
+        # Address consolidation target (for write-if-empty check)
+        "Billing Address Input",
     ]
 )
 
@@ -328,4 +384,6 @@ P2A_AIRTABLE_FIELDS_TO_FETCH: list[str] = (
 P2A_PRIORITY_SELECT: list[str] = (
     ["CUSTNAME", "UDATE"]
     + [m.priority_field for m in P2A_FIELD_MAP if m.priority_field != "CUSTNAME"]
+    # Address fields for consolidation into Billing Address Input
+    + ["ADDRESS", "ADDRESS2", "STATEA", "STATENAME", "ZIP", "COUNTRYNAME"]
 )

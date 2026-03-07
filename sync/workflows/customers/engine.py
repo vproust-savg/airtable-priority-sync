@@ -37,7 +37,7 @@ from sync.core.config import (
 from sync.core.models import FieldMapping, SubformResult, SyncError, SyncMode, SyncRecord
 from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
-from sync.core.utils import clean, day_to_priority_int, format_price, format_time_24h, strip_html, to_priority_date, values_equal
+from sync.core.utils import clean, day_to_priority_int, format_price, format_time_24h, priority_yn, strip_html, to_priority_date, values_equal
 from sync.workflows.customers.config import (
     AIRTABLE_CONTACTS_TABLE_ID,
     AIRTABLE_CONTACTS_VIEW,
@@ -85,6 +85,17 @@ from sync.workflows.customers.subform_mapping import (
     CONTACTS_FIELD_MAP,
     CONTACTS_MATCH_FIELD,
     DELIVERY_DAYS_AIRTABLE_FIELDS,
+    P2A_CONTACTS_AIRTABLE_FIELDS,
+    P2A_CONTACTS_AIRTABLE_MATCH_FIELD,
+    P2A_CONTACTS_FIELD_MAP,
+    P2A_CONTACTS_LINK_FIELD,
+    P2A_CONTACTS_MATCH_FIELD,
+    P2A_SITES_ADDRESS_TARGET,
+    P2A_SITES_AIRTABLE_FIELDS,
+    P2A_SITES_AIRTABLE_MATCH_FIELD,
+    P2A_SITES_FIELD_MAP,
+    P2A_SITES_MATCH_FIELD,
+    P2A_SITES_OVERWRITE_FIELDS,
     PRICE_LIST_AIRTABLE_FIELDS,
     PRICE_LIST_FIELD_MAP,
     PRICE_LIST_MATCH_FIELD,
@@ -135,22 +146,20 @@ class CustomerSyncEngine(BaseSyncEngine):
         base_id_override: str | None,
         token_override: str | None,
     ) -> AirtableClient:
-        # Skip timestamp field IDs for test base — production IDs may not
-        # exist in the duplicated base.  _to_id() falls back to field names.
-        ts_ids = (
-            {}
-            if base_id_override
-            else {v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()}
-        )
-        field_id_map = build_field_id_map(
-            A2P_FIELD_MAP, P2A_FIELD_MAP,
-            FNCCUST_A2P_FIELD_MAP, FNCCUST_P2A_FIELD_MAP,
-            extra={
-                AIRTABLE_KEY_FIELD: AIRTABLE_KEY_FIELD_ID,
-                AIRTABLE_KEY_FIELD_WRITABLE: AIRTABLE_KEY_FIELD_WRITABLE_ID,
-                **ts_ids,
-            },
-        )
+        # Skip ALL field IDs for test base — production IDs don't exist
+        # in the duplicated base.  _to_id() falls back to field names.
+        if base_id_override:
+            field_id_map = None
+        else:
+            field_id_map = build_field_id_map(
+                A2P_FIELD_MAP, P2A_FIELD_MAP,
+                FNCCUST_A2P_FIELD_MAP, FNCCUST_P2A_FIELD_MAP,
+                extra={
+                    AIRTABLE_KEY_FIELD: AIRTABLE_KEY_FIELD_ID,
+                    AIRTABLE_KEY_FIELD_WRITABLE: AIRTABLE_KEY_FIELD_WRITABLE_ID,
+                    **{v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()},
+                },
+            )
         return AirtableClient(
             table_name=AIRTABLE_TABLE_NAME,
             key_field=AIRTABLE_KEY_FIELD,
@@ -479,7 +488,7 @@ class CustomerSyncEngine(BaseSyncEngine):
 
             for day in day_list:
                 payload: dict[str, Any] = {
-                    "WEEKDAY": day_to_priority_int(day),
+                    "WEEKDAY": str(day_to_priority_int(day)),
                 }
                 if deliver_after:
                     payload["FROMTIME"] = format_time_24h(deliver_after)
@@ -573,6 +582,10 @@ class CustomerSyncEngine(BaseSyncEngine):
                     detail=str(e),
                 )
             )
+            self._capture_sentry_error(
+                e, entity_key=key, subform=WEEKDAY_SUBFORM_NAME,
+                label="delivery days",
+            )
 
     # ── Text sub-forms (Pattern A — single entity) ──────────────────────
 
@@ -642,6 +655,9 @@ class CustomerSyncEngine(BaseSyncEngine):
                 subform=subform_name, action="ERROR",
                 detail=str(e),
             ))
+            self._capture_sentry_error(
+                e, entity_key=key, subform=subform_name, label=label,
+            )
 
     # ── Credit Application upload ────────────────────────────────────────
 
@@ -720,6 +736,10 @@ class CustomerSyncEngine(BaseSyncEngine):
                     detail=f"Download failed: {e}",
                 )
             )
+            self._capture_sentry_error(
+                e, entity_key=key, subform=CREDIT_APP_SUBFORM_NAME,
+                label="credit app download", extra={"file_url": file_url},
+            )
             return
 
         # Base64 encode and upload
@@ -756,6 +776,10 @@ class CustomerSyncEngine(BaseSyncEngine):
                     action="ERROR",
                     detail=f"Upload failed: {e}",
                 )
+            )
+            self._capture_sentry_error(
+                e, entity_key=key, subform=CREDIT_APP_SUBFORM_NAME,
+                label="credit app upload", extra={"filename": filename},
             )
 
     # ── Generic sub-form sync ────────────────────────────────────────────
@@ -900,6 +924,10 @@ class CustomerSyncEngine(BaseSyncEngine):
                         "%s: failed to sync %s '%s': %s",
                         key, label, record_name, e,
                     )
+                    self._capture_sentry_error(
+                        e, entity_key=key, subform=subform_name,
+                        label=label, extra={"record_name": record_name},
+                    )
             if ok:
                 result.subform_results.append(
                     SubformResult(
@@ -967,6 +995,11 @@ class CustomerSyncEngine(BaseSyncEngine):
                     logger.error(
                         "Failed to fetch from table %s after %d attempts: %s",
                         table_id, AIRTABLE_MAX_RETRIES, e,
+                    )
+                    self._capture_sentry_error(
+                        e, entity_key=table_id,
+                        label="airtable table fetch",
+                        extra={"table_id": table_id, "view": view},
                     )
                     raise
                 wait_time = 2 ** attempt
@@ -1078,8 +1111,28 @@ class CustomerSyncEngine(BaseSyncEngine):
                 message=f"{label}: {e}",
                 timestamp=datetime.now(timezone.utc),
             ))
+            self._capture_sentry_error(
+                e, entity_key=key, subform=label,
+                label="secondary entity",
+            )
 
-    # ── P→A extra fields (FNCCUST) ───────────────────────────────────────
+    # ── P→A extra fields (FNCCUST + address consolidation) ──────────────
+
+    # Virtual FieldMapping for address consolidation (write-if-empty).
+    # Returned by _get_p2a_extra_field_map() so build_airtable_patch()
+    # can compare and enforce the p2a_write_if_empty rule.
+    _ADDRESS_FIELD_MAP = FieldMapping(
+        airtable_field="Billing Address Input",
+        airtable_field_id="fld8CIUzWEElBGJKz",
+        priority_field="ADDRESS",  # nominal — actual value is consolidated
+        transform="clean",
+        field_type="str",
+        p2a_write_if_empty=True,
+    )
+
+    def _get_p2a_extra_field_map(self) -> list[FieldMapping]:
+        """Include FNCCUST P→A field map + address consolidation mapping."""
+        return list(FNCCUST_P2A_FIELD_MAP) + [self._ADDRESS_FIELD_MAP]
 
     def _get_p2a_extra_fields(
         self,
@@ -1092,6 +1145,7 @@ class CustomerSyncEngine(BaseSyncEngine):
 
         Sources:
         1. FNCCUST (Financial Parameters) — secondary entity
+        2. Address consolidation — 6 Priority fields → 1 Airtable field
         """
         if is_status:
             return {}
@@ -1110,4 +1164,581 @@ class CustomerSyncEngine(BaseSyncEngine):
         except Exception as e:
             logger.warning("Failed to fetch FNCCUST for %s: %s", key, e)
 
+        # 2. Address consolidation → Billing Address Input
+        address = self._consolidate_address(priority_record)
+        if address:
+            extra["Billing Address Input"] = address
+
         return extra
+
+    @staticmethod
+    def _consolidate_address(priority_record: dict[str, Any]) -> str | None:
+        """
+        Build a comma-separated address from 6 Priority address fields.
+
+        Format: "123 Main St, Suite 200, New York, NY 10001, United States"
+        Skips empty parts.  Returns None if all parts are empty.
+        """
+        addr1 = clean(priority_record.get("ADDRESS")) or ""
+        addr2 = clean(priority_record.get("ADDRESS2")) or ""
+        city = clean(priority_record.get("STATEA")) or ""
+        state = clean(priority_record.get("STATENAME")) or ""
+        zip_code = clean(priority_record.get("ZIP")) or ""
+        country = clean(priority_record.get("COUNTRYNAME")) or ""
+
+        # Build city/state/zip segment: "City, State ZIP"
+        city_state_zip_parts: list[str] = []
+        if city:
+            city_state_zip_parts.append(city)
+        state_zip = f"{state} {zip_code}".strip() if state or zip_code else ""
+        if state_zip:
+            city_state_zip_parts.append(state_zip)
+        city_state_zip = ", ".join(city_state_zip_parts)
+
+        # Build full address: join non-empty segments with ", "
+        parts = [p for p in [addr1, addr2, city_state_zip, country] if p]
+        return ", ".join(parts) if parts else None
+
+    # ── P→A contacts sync (CUSTPERSONNEL_SUBFORM → Customer Contacts 2025) ──
+
+    def _post_p2a_sync(
+        self,
+        priority_records: list[dict[str, Any]],
+        airtable_by_key: dict[str, dict[str, Any]],
+    ) -> None:
+        """After main P→A customer sync, sync contacts and sites from Priority sub-forms."""
+        try:
+            self._sync_p2a_contacts(priority_records, airtable_by_key)
+        except Exception as e:
+            logger.error("P→A contacts sync failed: %s", e)
+        try:
+            self._sync_p2a_sites(priority_records, airtable_by_key)
+        except Exception as e:
+            logger.error("P→A sites sync failed: %s", e)
+
+    def _sync_p2a_contacts(
+        self,
+        priority_records: list[dict[str, Any]],
+        airtable_by_key: dict[str, dict[str, Any]],
+    ) -> None:
+        """
+        Sync contacts from Priority CUSTPERSONNEL_SUBFORM into the
+        Airtable Customer Contacts 2025 table.
+
+        All fields are write-if-empty: only populate empty Airtable fields.
+        New Priority contacts (no match in Airtable) are created.
+        """
+        logger.info("Syncing contacts (P→A)...")
+
+        # Step 1: Pre-fetch all existing Airtable contacts
+        airtable_contacts = self._fetch_airtable_contacts_for_p2a()
+        logger.info(
+            "Existing Airtable contacts: %d records across %d customers",
+            sum(len(v) for v in airtable_contacts.values()),
+            len(airtable_contacts),
+        )
+
+        # Step 2: Collect customer keys to process
+        priority_key = self._get_key_field_name()
+        keys_to_process = []
+        for rec in priority_records:
+            key = str(rec.get(priority_key, "")).strip()
+            if key:
+                keys_to_process.append(key)
+
+        creates: list[dict[str, Any]] = []
+        updates: list[dict[str, Any]] = []
+        unchanged = 0
+
+        # Step 3: For each customer, fetch Priority contacts and compare
+        for cust_key in keys_to_process:
+            cust_record = airtable_by_key.get(cust_key)
+            if not cust_record:
+                logger.debug("Customer %s not in Airtable — skipping contacts", cust_key)
+                continue
+            cust_record_id = cust_record["record_id"]
+
+            # Fetch contacts from Priority
+            try:
+                priority_contacts = self.priority.get_subform(
+                    cust_key, CONTACTS_SUBFORM_NAME,
+                )
+            except Exception as e:
+                logger.warning("Failed to fetch contacts from Priority for %s: %s", cust_key, e)
+                continue
+
+            if not priority_contacts:
+                continue
+
+            # Existing Airtable contacts for this customer, indexed by clean name
+            existing_by_name = airtable_contacts.get(cust_key, {})
+
+            for p_contact in priority_contacts:
+                p_name = str(p_contact.get(P2A_CONTACTS_MATCH_FIELD, "")).strip()
+                if not p_name:
+                    continue
+
+                # Match by full name (case-insensitive)
+                existing = existing_by_name.get(p_name.lower())
+
+                # Build field values from Priority contact
+                fields = self._build_contact_fields(p_contact)
+                if not fields:
+                    continue
+
+                if existing is None:
+                    # CREATE: new contact in Airtable
+                    create_fields = dict(fields)
+                    create_fields[P2A_CONTACTS_LINK_FIELD] = [cust_record_id]
+                    creates.append({"fields": create_fields})
+                else:
+                    # UPDATE: write-if-empty only
+                    existing_fields = existing["fields"]
+                    patch_fields: dict[str, Any] = {}
+
+                    for at_field, new_value in fields.items():
+                        current = existing_fields.get(at_field)
+                        # Write-if-empty: skip if Airtable field already has a value
+                        if current is not None and str(current).strip() != "":
+                            continue
+                        if new_value is not None and str(new_value).strip() != "":
+                            patch_fields[at_field] = new_value
+
+                    if patch_fields:
+                        updates.append({
+                            "id": existing["record_id"],
+                            "fields": patch_fields,
+                        })
+                    else:
+                        unchanged += 1
+
+        # Step 4: Batch write to Airtable Customer Contacts 2025 table
+        created_count = 0
+        updated_count = 0
+
+        if creates and not self.dry_run:
+            created_count = self.airtable.batch_create_to_table(
+                AIRTABLE_CONTACTS_TABLE_ID, creates,
+            )
+
+        if updates and not self.dry_run:
+            updated_count = self.airtable.batch_update_to_table(
+                AIRTABLE_CONTACTS_TABLE_ID, updates,
+            )
+
+        summary = (
+            f"Contacts P→A: "
+            f"{created_count or len(creates)} created, "
+            f"{updated_count or len(updates)} updated, "
+            f"{unchanged} unchanged"
+        )
+        logger.info(summary)
+
+    def _build_contact_fields(
+        self,
+        p_contact: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Build Airtable field values from a single Priority contact record.
+
+        Handles:
+        - clean transform for text fields
+        - priority_yn transform for flag fields (Y→Yes, N→No)
+        - Name splitting fallback: if FIRSTNAME/LASTNAME empty, split NAME
+        """
+        fields: dict[str, Any] = {}
+
+        for priority_field, (at_field, transform) in P2A_CONTACTS_FIELD_MAP.items():
+            raw_value = p_contact.get(priority_field)
+            if transform == "priority_yn":
+                value = priority_yn(raw_value)
+            else:
+                value = clean(raw_value)
+
+            if value is not None and str(value).strip() != "":
+                fields[at_field] = value
+
+        # Name splitting fallback: use NAME if FIRSTNAME/LASTNAME are empty
+        full_name = clean(p_contact.get("NAME")) or ""
+        if full_name:
+            if "First Name Input" not in fields:
+                first, _ = self._split_full_name(full_name)
+                if first:
+                    fields["First Name Input"] = first
+            if "Last Name Input" not in fields:
+                _, last = self._split_full_name(full_name)
+                if last:
+                    fields["Last Name Input"] = last
+
+        return fields
+
+    @staticmethod
+    def _split_full_name(full_name: str) -> tuple[str, str]:
+        """Split 'John Smith' into ('John', 'Smith'). Single word → (word, '')."""
+        parts = full_name.strip().split(None, 1)
+        first = parts[0] if parts else ""
+        last = parts[1] if len(parts) > 1 else ""
+        return first, last
+
+    def _fetch_airtable_contacts_for_p2a(
+        self,
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        """
+        Fetch ALL existing contacts from the Airtable Customer Contacts 2025 table.
+
+        Returns:
+            Nested dict: ``{cust_id: {clean_name_lower: {"record_id": str, "fields": dict}}}``
+        """
+        contacts_url = (
+            f"{AIRTABLE_API_BASE}/{self.airtable._base_id}/{AIRTABLE_CONTACTS_TABLE_ID}"
+        )
+        field_params = [("fields[]", f) for f in P2A_CONTACTS_AIRTABLE_FIELDS]
+        records: list[dict[str, Any]] = []
+        offset: str | None = None
+
+        while True:
+            params = list(field_params)
+            if offset:
+                params.append(("offset", offset))
+
+            response = self.airtable.session.get(
+                contacts_url,
+                params=params,
+                timeout=AIRTABLE_REQUEST_TIMEOUT,
+            )
+
+            if response.status_code == 429:
+                retry_after = int(response.headers.get("Retry-After", 30))
+                logger.warning("Rate limited fetching contacts. Waiting %ds...", retry_after)
+                time.sleep(retry_after)
+                continue
+
+            response.raise_for_status()
+            data = response.json()
+
+            records.extend(data.get("records", []))
+            offset = data.get("offset")
+            if not offset:
+                break
+            time.sleep(0.2)
+
+        # Group by customer ID → clean full name (lowercase)
+        by_cust: dict[str, dict[str, dict[str, Any]]] = {}
+        for record in records:
+            fields = record.get("fields", {})
+            record_id = record.get("id", "")
+
+            # Customer ID comes from a lookup field — it's a list
+            cust_id_raw = fields.get("Priority Cust. ID (from Customers)")
+            if isinstance(cust_id_raw, list):
+                cust_ids = [clean(c) for c in cust_id_raw if clean(c)]
+            else:
+                cid = clean(cust_id_raw)
+                cust_ids = [cid] if cid else []
+
+            # Get the clean full name for matching
+            full_name = clean(fields.get(P2A_CONTACTS_AIRTABLE_MATCH_FIELD))
+            if not full_name:
+                continue
+
+            name_key = full_name.lower()
+
+            for cust_id in cust_ids:
+                by_cust.setdefault(cust_id, {})[name_key] = {
+                    "record_id": record_id,
+                    "fields": fields,
+                }
+
+        return by_cust
+
+    # ── P→A sites sync (CUSTDESTS_SUBFORM → Customer Sites table) ────────
+
+    def _sync_p2a_sites(
+        self,
+        priority_records: list[dict[str, Any]],
+        airtable_by_key: dict[str, dict[str, Any]],
+    ) -> None:
+        """
+        Sync sites from Priority CUSTDESTS_SUBFORM into the
+        Airtable Customer Sites table.
+
+        Update only — no new site creation (Site Id is auto-generated).
+        Most fields are write-if-empty; MAINFLAG always-overwrites.
+        """
+        logger.info("Syncing sites (P→A)...")
+
+        # Step 1: Pre-fetch all existing Airtable sites
+        airtable_sites = self._fetch_airtable_sites_for_p2a()
+        logger.info(
+            "Existing Airtable sites: %d records across %d customers",
+            sum(len(v) for v in airtable_sites.values()),
+            len(airtable_sites),
+        )
+
+        # Step 2: Fetch lookup tables for zone and shipper
+        zone_lookup = self._fetch_zone_lookup()
+        shipper_lookup = self._fetch_shipper_lookup()
+
+        # Step 3: Collect customer keys to process
+        priority_key = self._get_key_field_name()
+        keys_to_process = []
+        for rec in priority_records:
+            key = str(rec.get(priority_key, "")).strip()
+            if key:
+                keys_to_process.append(key)
+
+        updates: list[dict[str, Any]] = []
+        unchanged = 0
+        skipped_no_match = 0
+
+        # Step 4: For each customer, fetch Priority sites and compare
+        for cust_key in keys_to_process:
+            # Fetch sites from Priority
+            try:
+                priority_sites = self.priority.get_subform(
+                    cust_key, SITES_SUBFORM_NAME,
+                )
+            except Exception as e:
+                logger.warning("Failed to fetch sites from Priority for %s: %s", cust_key, e)
+                continue
+
+            if not priority_sites:
+                continue
+
+            # Existing Airtable sites for this customer, indexed by site code
+            existing_by_code = airtable_sites.get(cust_key, {})
+
+            for p_site in priority_sites:
+                p_code = str(p_site.get(P2A_SITES_MATCH_FIELD, "")).strip()
+                if not p_code:
+                    continue
+
+                # Match by site code (case-insensitive)
+                existing = existing_by_code.get(p_code.lower())
+
+                if existing is None:
+                    # No match — skip (update only, no creates)
+                    skipped_no_match += 1
+                    continue
+
+                # Build field values from Priority site
+                fields = self._build_site_fields(p_site, zone_lookup, shipper_lookup)
+                if not fields:
+                    unchanged += 1
+                    continue
+
+                # Apply mixed write logic: write-if-empty for most, always-overwrite for MAINFLAG
+                existing_fields = existing["fields"]
+                patch_fields: dict[str, Any] = {}
+
+                for at_field, new_value in fields.items():
+                    current = existing_fields.get(at_field)
+                    is_overwrite = at_field in P2A_SITES_OVERWRITE_FIELDS
+
+                    if not is_overwrite:
+                        # Write-if-empty: skip if Airtable field already has a value
+                        if current is not None and str(current).strip() != "":
+                            continue
+
+                    # Only write if there's actually a new value and it differs
+                    if new_value is not None and str(new_value).strip() != "":
+                        if not values_equal(new_value, current):
+                            patch_fields[at_field] = new_value
+
+                if patch_fields:
+                    updates.append({
+                        "id": existing["record_id"],
+                        "fields": patch_fields,
+                    })
+                else:
+                    unchanged += 1
+
+        # Step 5: Batch write to Airtable Customer Sites table
+        updated_count = 0
+
+        if updates and not self.dry_run:
+            updated_count = self.airtable.batch_update_to_table(
+                AIRTABLE_SITES_TABLE_ID, updates,
+            )
+
+        summary = (
+            f"Sites P→A: "
+            f"{updated_count or len(updates)} updated, "
+            f"{unchanged} unchanged, "
+            f"{skipped_no_match} skipped (no Airtable match)"
+        )
+        logger.info(summary)
+
+    def _build_site_fields(
+        self,
+        p_site: dict[str, Any],
+        zone_lookup: dict[str, str],
+        shipper_lookup: dict[str, str],
+    ) -> dict[str, Any]:
+        """
+        Build Airtable field values from a single Priority site record.
+
+        Handles:
+        - clean transform for text fields
+        - priority_yn transform for MAINFLAG (Y→Yes, N→No)
+        - strip_html transform for ADDRESS3 (remarks may contain HTML)
+        - zone_lookup / shipper_lookup for code→name conversion
+        - Address consolidation into Address Input
+        """
+        fields: dict[str, Any] = {}
+
+        for priority_field, (at_field, transform) in P2A_SITES_FIELD_MAP.items():
+            raw_value = p_site.get(priority_field)
+
+            if transform == "priority_yn":
+                value = priority_yn(raw_value)
+            elif transform == "strip_html":
+                cleaned = clean(raw_value)
+                value = strip_html(cleaned) if cleaned else None
+            elif transform in ("zone_lookup", "shipper_lookup"):
+                code = clean(raw_value)
+                lkp = zone_lookup if transform == "zone_lookup" else shipper_lookup
+                if code and lkp:
+                    # Try raw, zero-padded, and stripped (Priority codes may be "01" or "1")
+                    value = (
+                        lkp.get(str(code))
+                        or lkp.get(str(code).zfill(2))
+                        or lkp.get(str(code).lstrip("0") or "0")
+                        or code
+                    )
+                else:
+                    value = code
+            else:
+                value = clean(raw_value)
+
+            if value is not None and str(value).strip() != "":
+                fields[at_field] = value
+
+        # Address consolidation
+        address = self._consolidate_site_address(p_site)
+        if address:
+            fields[P2A_SITES_ADDRESS_TARGET] = address
+
+        return fields
+
+    @staticmethod
+    def _consolidate_site_address(site_record: dict[str, Any]) -> str | None:
+        """
+        Build a comma-separated address from Priority site address fields.
+
+        Format: "123 Main St, Suite 200, Los Angeles, CA 90012"
+        From: ADDRESS, ADDRESS2, STATE (city), STATECODE, ZIP
+        No COUNTRYNAME (not synced for sites).
+        Skips empty parts. Returns None if all parts are empty.
+        """
+        addr1 = clean(site_record.get("ADDRESS")) or ""
+        addr2 = clean(site_record.get("ADDRESS2")) or ""
+        city = clean(site_record.get("STATE")) or ""
+        state_code = clean(site_record.get("STATECODE")) or ""
+        zip_code = clean(site_record.get("ZIP")) or ""
+
+        # Build city/state/zip segment: "City, ST ZIP"
+        city_state_zip_parts: list[str] = []
+        if city:
+            city_state_zip_parts.append(city)
+        state_zip = f"{state_code} {zip_code}".strip() if state_code or zip_code else ""
+        if state_zip:
+            city_state_zip_parts.append(state_zip)
+        city_state_zip = ", ".join(city_state_zip_parts)
+
+        # Build full address: join non-empty segments with ", "
+        parts = [p for p in [addr1, addr2, city_state_zip] if p]
+        return ", ".join(parts) if parts else None
+
+    def _fetch_zone_lookup(self) -> dict[str, str]:
+        """Fetch ZONECODE → zone name lookup from Priority."""
+        try:
+            lookup = self.priority.fetch_lookup_table(
+                "DISTRLINES", "DISTRLINECODE", "DISTRLINEDES",
+            )
+            if lookup:
+                logger.info("Fetched %d zone lookup entries", len(lookup))
+            return lookup
+        except Exception as e:
+            logger.warning("Zone lookup (DISTRLINES) not available: %s", e)
+            return {}
+
+    def _fetch_shipper_lookup(self) -> dict[str, str]:
+        """Fetch SHIPPERNAME → shipper name lookup from Priority."""
+        try:
+            lookup = self.priority.fetch_lookup_table(
+                "SHIPPERS", "SHIPPERNAME", "SHIPPERDES",
+            )
+            if lookup:
+                logger.info("Fetched %d shipper lookup entries", len(lookup))
+            return lookup
+        except Exception as e:
+            logger.warning("Shipper lookup (SHIPPERS) not available: %s", e)
+            return {}
+
+    def _fetch_airtable_sites_for_p2a(
+        self,
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        """
+        Fetch ALL existing sites from the Airtable Customer Sites table.
+
+        Returns:
+            Nested dict: ``{cust_id: {site_code_lower: {"record_id": str, "fields": dict}}}``
+        """
+        sites_url = (
+            f"{AIRTABLE_API_BASE}/{self.airtable._base_id}/{AIRTABLE_SITES_TABLE_ID}"
+        )
+        field_params = [("fields[]", f) for f in P2A_SITES_AIRTABLE_FIELDS]
+        records: list[dict[str, Any]] = []
+        offset: str | None = None
+
+        while True:
+            params = list(field_params)
+            if offset:
+                params.append(("offset", offset))
+
+            response = self.airtable.session.get(
+                sites_url,
+                params=params,
+                timeout=AIRTABLE_REQUEST_TIMEOUT,
+            )
+
+            if response.status_code == 429:
+                retry_after = int(response.headers.get("Retry-After", 30))
+                logger.warning("Rate limited fetching sites. Waiting %ds...", retry_after)
+                time.sleep(retry_after)
+                continue
+
+            response.raise_for_status()
+            data = response.json()
+
+            records.extend(data.get("records", []))
+            offset = data.get("offset")
+            if not offset:
+                break
+            time.sleep(0.2)
+
+        # Group by customer ID → site code (lowercase)
+        by_cust: dict[str, dict[str, dict[str, Any]]] = {}
+        for record in records:
+            fields = record.get("fields", {})
+            record_id = record.get("id", "")
+
+            # Customer ID from formula field
+            cust_id = clean(fields.get("Priority Cust. ID"))
+            if not cust_id:
+                continue
+
+            # Site code for matching
+            site_code = clean(fields.get(P2A_SITES_AIRTABLE_MATCH_FIELD))
+            if not site_code:
+                continue
+
+            code_key = site_code.lower()
+
+            by_cust.setdefault(cust_id, {})[code_key] = {
+                "record_id": record_id,
+                "fields": fields,
+            }
+
+        return by_cust

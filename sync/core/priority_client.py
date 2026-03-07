@@ -246,6 +246,14 @@ class PriorityClient:
 
             skip += PRIORITY_PAGE_SIZE
 
+        # Warn if we hit Priority's MAXAPILINES limit (default 2000)
+        if len(keys) >= 2000 and len(keys) % PRIORITY_PAGE_SIZE == 0:
+            logger.warning(
+                "Loaded exactly %d keys — may have hit Priority MAXAPILINES "
+                "limit. Records beyond this will use 409 fallback.",
+                len(keys),
+            )
+
         return keys
 
     def fetch_changed_records(

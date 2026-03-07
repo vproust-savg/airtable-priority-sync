@@ -246,7 +246,7 @@ def map_priority_to_airtable(
         raw_value = priority_fields.get(mapping.priority_field)
 
         # Handle priority_lookup transform (linked-table code → description)
-        if mapping.transform == "priority_lookup" and mapping.lookup and lookups:
+        if mapping.transform == "priority_lookup" and mapping.lookup and lookups is not None:
             cleaned = clean(raw_value)
             if cleaned:
                 lookup_dict = lookups.get(mapping.lookup.entity, {})
@@ -317,6 +317,11 @@ def build_airtable_patch(
         mapping = by_airtable.get(airtable_field)
         if not mapping:
             continue
+
+        # p2a_write_if_empty: skip if Airtable field already has a value
+        if mapping.p2a_write_if_empty:
+            if current_value is not None and str(current_value).strip() != "":
+                continue
 
         # Compare based on type
         if mapping.field_type == "float":
@@ -428,6 +433,38 @@ class BaseSyncEngine(abc.ABC):
                 sentry_sdk.set_tag("priority_env", "default")
         except Exception:
             pass  # Sentry not available or not initialized
+
+    # ── Sentry helpers ────────────────────────────────────────────────────
+
+    def _capture_sentry_error(
+        self,
+        exc: Exception,
+        *,
+        entity_key: str,
+        subform: str | None = None,
+        label: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """Send a caught exception to Sentry with structured context.
+
+        Tags (indexed, filterable): entity_key, subform.
+        Extras (detailed context): label, plus anything in *extra*.
+        Global tags (workflow, direction, priority_env) are already set in __init__.
+        """
+        try:
+            import sentry_sdk
+            with sentry_sdk.new_scope() as scope:
+                scope.set_tag("entity_key", entity_key)
+                if subform:
+                    scope.set_tag("subform", subform)
+                if label:
+                    scope.set_extra("label", label)
+                if extra:
+                    for k, v in extra.items():
+                        scope.set_extra(k, v)
+                sentry_sdk.capture_exception(exc)
+        except Exception:
+            pass
 
     # ── Abstract / hook methods (subclasses override) ─────────────────────
 
@@ -825,6 +862,37 @@ class BaseSyncEngine(abc.ABC):
             return
 
         print_detail(f"Found {len(airtable_records)} records to sync.")
+
+        # ── Detect duplicate Airtable keys — flag as error, skip dupes ──
+        seen_keys: dict[str, str] = {}   # key → first Airtable record ID
+        duplicates: list[tuple[str, str]] = []  # (key, record_id) to skip
+        for record in airtable_records:
+            key = clean(record.get("fields", {}).get(airtable_key_field))
+            rec_id = record.get("id", "")
+            if key:
+                if key in seen_keys:
+                    duplicates.append((key, rec_id))
+                    logger.error(
+                        "DUPLICATE: Airtable has multiple records for %s — "
+                        "skipping duplicate (record %s). Fix in Airtable.",
+                        key, rec_id,
+                    )
+                else:
+                    seen_keys[key] = rec_id
+
+        if duplicates:
+            dupe_keys = {k for k, _ in duplicates}
+            dupe_ids = {rid for _, rid in duplicates}
+            airtable_records = [
+                r for r in airtable_records
+                if r.get("id") not in dupe_ids
+            ]
+            print_detail(
+                f"⚠ {len(duplicates)} duplicate record(s) skipped "
+                f"(keys: {', '.join(sorted(dupe_keys))}). "
+                f"Fix in Airtable."
+            )
+
         print()
 
         # Step 2: Fetch all existing keys from Priority
@@ -1125,6 +1193,21 @@ class BaseSyncEngine(abc.ABC):
                 except Exception:
                     message = e.response.text[:200] if e.response.text else str(e)
 
+            # ── 409 fallback: record already exists → retry as UPDATE ──
+            if status_code == 409:
+                logger.warning(
+                    "%s: POST returned 409 (already exists) — "
+                    "falling back to UPDATE",
+                    key,
+                )
+                print_record_line(
+                    index, total, key, "RETRY", "exists → updating",
+                )
+                return self._update_entity(
+                    key=key, payload=payload, result=result,
+                    index=index, total=total,
+                )
+
             result.action = SyncAction.ERROR
             result.error_message = message
             self.stats.errors += 1
@@ -1140,16 +1223,11 @@ class BaseSyncEngine(abc.ABC):
             print_record_line(index, total, key, "ERROR", f"CREATE failed ({status_str})")
             logger.error("Failed to create %s: %s", key, message)
 
-            try:
-                import sentry_sdk
-                with sentry_sdk.new_scope() as scope:
-                    scope.set_extra("entity_key", key)
-                    scope.set_extra("http_status", status_code)
-                    scope.set_extra("priority_message", message)
-                    scope.set_extra("payload_fields", list(payload.keys()))
-                    sentry_sdk.capture_exception(e)
-            except Exception:
-                pass
+            self._capture_sentry_error(e, entity_key=key, extra={
+                "http_status": status_code,
+                "priority_message": message,
+                "payload_fields": list(payload.keys()),
+            })
 
             return result
 
@@ -1278,13 +1356,7 @@ class BaseSyncEngine(abc.ABC):
             print_record_line(index, total, key, "ERROR", f"GET failed: {e}")
             logger.error("Failed to GET %s from Priority: %s", key, e)
 
-            try:
-                import sentry_sdk
-                with sentry_sdk.new_scope() as scope:
-                    scope.set_extra("entity_key", key)
-                    sentry_sdk.capture_exception(e)
-            except Exception:
-                pass
+            self._capture_sentry_error(e, entity_key=key)
 
             return result
 
@@ -1396,16 +1468,11 @@ class BaseSyncEngine(abc.ABC):
             print_record_line(index, total, key, "ERROR", f"UPDATE failed ({status_str})")
             logger.error("Failed to update %s: %s", key, message)
 
-            try:
-                import sentry_sdk
-                with sentry_sdk.new_scope() as scope:
-                    scope.set_extra("entity_key", key)
-                    scope.set_extra("http_status", status_code)
-                    scope.set_extra("priority_message", message)
-                    scope.set_extra("patch_fields", list(patch_body.keys()))
-                    sentry_sdk.capture_exception(e)
-            except Exception:
-                pass
+            self._capture_sentry_error(e, entity_key=key, extra={
+                "http_status": status_code,
+                "priority_message": message,
+                "patch_fields": list(patch_body.keys()),
+            })
 
             return result
 

@@ -66,22 +66,20 @@ class VendorPriceSyncEngine(BaseSyncEngine):
         base_id_override: str | None,
         token_override: str | None,
     ) -> AirtableClient:
-        # Skip timestamp field IDs for test base — production IDs may not
-        # exist in the duplicated base.  _to_id() falls back to field names.
-        ts_ids = (
-            {}
-            if base_id_override
-            else {v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()}
-        )
-        field_id_map = build_field_id_map(
-            A2P_FIELD_MAP, P2A_FIELD_MAP,
-            extra={
-                AIRTABLE_KEY_FIELD: AIRTABLE_KEY_FIELD_ID,
-                **ts_ids,
-                **AIRTABLE_FIELD_IDS,
-                **ITEMS_FIELD_IDS,
-            },
-        )
+        # Skip ALL field IDs for test base — production IDs don't exist
+        # in the duplicated base.  _to_id() falls back to field names.
+        if base_id_override:
+            field_id_map = None
+        else:
+            field_id_map = build_field_id_map(
+                A2P_FIELD_MAP, P2A_FIELD_MAP,
+                extra={
+                    AIRTABLE_KEY_FIELD: AIRTABLE_KEY_FIELD_ID,
+                    **{v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()},
+                    **AIRTABLE_FIELD_IDS,
+                    **ITEMS_FIELD_IDS,
+                },
+            )
         return AirtableClient(
             table_name=AIRTABLE_TABLE_NAME,
             key_field=AIRTABLE_KEY_FIELD,

@@ -123,27 +123,25 @@ class ProductSyncEngine(BaseSyncEngine):
         token_override: str | None,
     ) -> AirtableClient:
         """Create an AirtableClient configured for the Products table."""
-        # Skip timestamp field IDs for test base — production IDs may not
-        # exist in the duplicated base.  _to_id() falls back to field names.
-        ts_ids = (
-            {}
-            if base_id_override
-            else {v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()}
-        )
-        field_id_map = build_field_id_map(
-            PRODUCT_FIELD_MAP, STATUS_FIELD_MAP,
-            P2A_FIELD_MAP, P2A_STATUS_FIELD_MAP,
-            FNCPART_A2P_FIELD_MAP, FNCPART_P2A_FIELD_MAP,
-            PRDPART_A2P_FIELD_MAP, PRDPART_P2A_FIELD_MAP,
-            ALLERGEN_FIELD_MAP, BIN_FIELD_MAP,
-            extra={
-                AIRTABLE_FIELD_SKU: AIRTABLE_FIELD_SKU_ID,
-                AIRTABLE_FIELD_SKU_WRITABLE: AIRTABLE_FIELD_SKU_WRITABLE_ID,
-                **ts_ids,
-                **PRICE_LIST_FIELD_IDS,
-                **PRICE_LIST_SHARED_FIELD_IDS,
-            },
-        )
+        # Skip ALL field IDs for test base — production IDs don't exist
+        # in the duplicated base.  _to_id() falls back to field names.
+        if base_id_override:
+            field_id_map = None
+        else:
+            field_id_map = build_field_id_map(
+                PRODUCT_FIELD_MAP, STATUS_FIELD_MAP,
+                P2A_FIELD_MAP, P2A_STATUS_FIELD_MAP,
+                FNCPART_A2P_FIELD_MAP, FNCPART_P2A_FIELD_MAP,
+                PRDPART_A2P_FIELD_MAP, PRDPART_P2A_FIELD_MAP,
+                ALLERGEN_FIELD_MAP, BIN_FIELD_MAP,
+                extra={
+                    AIRTABLE_FIELD_SKU: AIRTABLE_FIELD_SKU_ID,
+                    AIRTABLE_FIELD_SKU_WRITABLE: AIRTABLE_FIELD_SKU_WRITABLE_ID,
+                    **{v: TIMESTAMP_FIELD_IDS[k] for k, v in TIMESTAMP_FIELDS.items()},
+                    **PRICE_LIST_FIELD_IDS,
+                    **PRICE_LIST_SHARED_FIELD_IDS,
+                },
+            )
         return AirtableClient(
             table_name=AIRTABLE_PRODUCTS_TABLE_NAME,
             key_field=AIRTABLE_FIELD_SKU,

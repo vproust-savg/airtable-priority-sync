@@ -233,3 +233,80 @@ DELIVERY_DAYS_FIELD_IDS: dict[str, str] = {
 
 # Not a standard field map — handled with custom logic in the engine
 # because row explosion + transforms are needed
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# P→A: Customer Contacts — CUSTPERSONNEL_SUBFORM → Customer Contacts 2025
+# ═════════════════════════════════════════════════════════════════════════════
+# All fields are write-if-empty: only populate if the Airtable field is empty.
+# Flag fields (Y/N in Priority) need priority_yn transform → Yes/No in Airtable.
+
+# Priority field → (Airtable writable field name, transform)
+P2A_CONTACTS_FIELD_MAP: dict[str, tuple[str, str]] = {
+    "FIRSTNAME": ("First Name Input", "clean"),
+    "LASTNAME": ("Last Name Input", "clean"),
+    "PHONENUM": ("Phone Number Input", "clean"),
+    "CELLPHONE": ("Cell Phone", "clean"),
+    "EMAIL": ("Email Input", "clean"),
+    "POSITIONDES": ("Position Input", "clean"),
+    "STATDES": ("Status", "clean"),
+    "MAINPHONE": ("Main Contact", "priority_yn"),
+    "DEALFLAG": ("Marketing", "priority_yn"),
+    "CPROFFLAG": ("Price Quote", "priority_yn"),
+    "ORDFLAG": ("Sales Order", "priority_yn"),
+    "DOCFLAG": ("Shipment", "priority_yn"),
+    "CIVFLAG": ("Invoice", "priority_yn"),
+    "FNCFLAG": ("Cust. Statement", "priority_yn"),
+    "CONSINGEEFLAG": ("Outgoing Voucher", "priority_yn"),
+}
+
+P2A_CONTACTS_MATCH_FIELD = "NAME"  # Priority full name for matching
+P2A_CONTACTS_AIRTABLE_MATCH_FIELD = "Clean Full Name"  # Airtable formula for matching
+P2A_CONTACTS_LINK_FIELD = "Customers"  # Linked record field to parent customer
+
+# Airtable fields to fetch for P→A comparison
+P2A_CONTACTS_AIRTABLE_FIELDS: list[str] = (
+    [at_field for _, (at_field, _) in P2A_CONTACTS_FIELD_MAP.items()]
+    + [
+        P2A_CONTACTS_AIRTABLE_MATCH_FIELD,  # For matching by full name
+        "Priority Cust. ID (from Customers)",  # To group by customer
+    ]
+)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# P→A: Customer Sites — CUSTDESTS_SUBFORM → Customer Sites table
+# ═════════════════════════════════════════════════════════════════════════════
+# Most fields are write-if-empty; MAINFLAG is always-overwrite.
+# ZONECODE and SHIPPERNAME need Priority lookup tables (code → description).
+# Address fields (ADDRESS, ADDRESS2, STATE, STATECODE, ZIP) are consolidated
+# into a single "Address Input" field (write-if-empty).
+
+# Priority field → (Airtable writable field name, transform)
+P2A_SITES_FIELD_MAP: dict[str, tuple[str, str]] = {
+    "CODEDES": ("Ship To Name Input", "clean"),
+    "MAINFLAG": ("Main", "priority_yn"),
+    "ADDRESS3": ("Address Remarks Input", "strip_html"),
+    "PHONE": ("Phone Input", "clean"),
+    "ZONECODE": ("Shipping Zone", "zone_lookup"),
+    "SHIPPERNAME": ("Main Delivery Method", "shipper_lookup"),
+}
+
+# MAINFLAG is the only field that always overwrites; all others are write-if-empty
+P2A_SITES_OVERWRITE_FIELDS: set[str] = {"Main"}
+
+P2A_SITES_MATCH_FIELD = "CODE"  # Priority site code for matching
+P2A_SITES_AIRTABLE_MATCH_FIELD = "Site Id"  # Airtable formula for matching
+
+# Address consolidation target (write-if-empty)
+P2A_SITES_ADDRESS_TARGET = "Address Input"
+
+# Airtable fields to fetch for P→A comparison
+P2A_SITES_AIRTABLE_FIELDS: list[str] = (
+    [at_field for _, (at_field, _) in P2A_SITES_FIELD_MAP.items()]
+    + [
+        P2A_SITES_AIRTABLE_MATCH_FIELD,  # "Site Id" — for matching
+        P2A_SITES_ADDRESS_TARGET,         # "Address Input" — for write-if-empty check
+        "Priority Cust. ID",              # Formula — for grouping by customer
+    ]
+)
