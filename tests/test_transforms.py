@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from sync.core.utils import (
-    abbreviate_day,
+    day_to_priority_int,
     clean,
     extract_value,
     format_date_mmddyyyy,
@@ -167,17 +167,33 @@ class TestPriorityYN:
         assert priority_yn("Maybe") == "Maybe"
 
 
-# ── abbreviate_day ─────────────────────────────────────────────────────────
+# ── day_to_priority_int ───────────────────────────────────────────────────
 
-class TestAbbreviateDay:
-    def test_monday(self):
-        assert abbreviate_day("Monday") == "Mon"
+class TestDayToPriorityInt:
+    def test_full_names(self):
+        assert day_to_priority_int("Sunday") == 1
+        assert day_to_priority_int("Monday") == 2
+        assert day_to_priority_int("Tuesday") == 3
+        assert day_to_priority_int("Wednesday") == 4
+        assert day_to_priority_int("Thursday") == 5
+        assert day_to_priority_int("Friday") == 6
+        assert day_to_priority_int("Saturday") == 7
 
     def test_case_insensitive(self):
-        assert abbreviate_day("wednesday") == "Wed"
+        assert day_to_priority_int("wednesday") == 4
+        assert day_to_priority_int("FRIDAY") == 6
 
-    def test_already_abbreviated(self):
-        assert abbreviate_day("Fri") == "Fri"
+    def test_abbreviations(self):
+        assert day_to_priority_int("Mon") == 2
+        assert day_to_priority_int("Thu") == 5
+        assert day_to_priority_int("Sun") == 1
+
+    def test_already_integer_string(self):
+        assert day_to_priority_int("5") == 5
+
+    def test_unknown_raises(self):
+        with pytest.raises(ValueError):
+            day_to_priority_int("Funday")
 
 
 # ── format_time_24h ───────────────────────────────────────────────────────

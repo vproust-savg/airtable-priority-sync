@@ -161,29 +161,37 @@ def to_float(value: Any) -> float | None:
         return None
 
 
-def abbreviate_day(day: str) -> str:
+def day_to_priority_int(day: str) -> int:
     """
-    Convert a full day name to a 3-letter abbreviation.
-    Used for CUSTWEEKDAY_SUBFORM in Customers All.
+    Convert a day name to Priority's integer WEEKDAY value.
+    Priority uses: 1=Sunday, 2=Monday, …, 7=Saturday.
+
+    Used for CUSTWEEKDAY_SUBFORM — Priority stores and returns WEEKDAY
+    as an integer, so we must send integers for both writes AND comparisons
+    (critical for GET+compare optimization to avoid false positives).
 
     Examples:
-        "Monday" → "Mon", "Wednesday" → "Wed"
-        "mon" → "Mon" (case-insensitive)
+        "Monday" → 2, "Wednesday" → 4, "Friday" → 6
+        "mon" → 2 (case-insensitive)
+        "Mon" → 2 (abbreviations work too)
     """
     DAY_MAP = {
-        "monday": "Mon",
-        "tuesday": "Tue",
-        "wednesday": "Wed",
-        "thursday": "Thu",
-        "friday": "Fri",
-        "saturday": "Sat",
-        "sunday": "Sun",
+        "sunday": 1,    "sun": 1,
+        "monday": 2,    "mon": 2,
+        "tuesday": 3,   "tue": 3,
+        "wednesday": 4, "wed": 4,
+        "thursday": 5,  "thu": 5,
+        "friday": 6,    "fri": 6,
+        "saturday": 7,  "sat": 7,
     }
     key = day.strip().lower()
     if key in DAY_MAP:
         return DAY_MAP[key]
-    # Already abbreviated or unknown — capitalize first 3 chars
-    return day.strip()[:3].capitalize()
+    # Try to parse as integer already (e.g., "5" → 5)
+    try:
+        return int(day.strip())
+    except (ValueError, TypeError):
+        raise ValueError(f"Unknown day: {day!r}")
 
 
 def format_time_24h(time_str: str) -> str:

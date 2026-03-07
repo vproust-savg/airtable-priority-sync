@@ -10,7 +10,7 @@ Handles 6 accessible sub-forms from 4 Airtable tables:
   - Special Prices     → CUSTPARTPRICE_SUBFORM (separate table)
   - Price List         → CUSTPLIST_SUBFORM (Customers table, different view)
   - Delivery Days      → CUSTWEEKDAY_SUBFORM (Customers table, different view)
-                         Requires row explosion + day abbreviation + time conversion
+                         Requires row explosion + day→integer conversion + time conversion
   - Credit Application → CUSTEXTFILE_SUBFORM (attachment download + base64 upload)
 
 NOT accessible via API (return 404):
@@ -39,7 +39,7 @@ from sync.core.config import (
 from sync.core.models import FieldMapping, SubformResult, SyncError, SyncMode, SyncRecord
 from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
-from sync.core.utils import abbreviate_day, clean, format_price, format_time_24h, to_priority_date
+from sync.core.utils import clean, day_to_priority_int, format_price, format_time_24h, to_priority_date
 from sync.workflows.customers.config import (
     AIRTABLE_CONTACTS_TABLE_ID,
     AIRTABLE_CONTACTS_VIEW,
@@ -436,7 +436,7 @@ class CustomerSyncEngine(BaseSyncEngine):
 
         Special processing:
         - "Days of Business" is comma-separated → one sub-form row per day
-        - Day names abbreviated: Monday → Mon
+        - Day names → Priority integer (Sun=1, Mon=2, …, Sat=7)
         - Times converted: 12h AM/PM → 24h
         """
         if not days_records:
@@ -457,7 +457,7 @@ class CustomerSyncEngine(BaseSyncEngine):
 
             for day in day_list:
                 payload: dict[str, Any] = {
-                    "WEEKDAY": abbreviate_day(day),
+                    "WEEKDAY": day_to_priority_int(day),
                 }
                 if deliver_after:
                     payload["FROMTIME"] = format_time_24h(deliver_after)

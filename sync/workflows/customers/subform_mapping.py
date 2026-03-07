@@ -215,7 +215,7 @@ PRICE_LIST_MATCH_FIELD = "PLNAME"
 # ═════════════════════════════════════════════════════════════════════════════
 # SPECIAL: "Days of Business" is comma-separated → one sub-form row per day
 # Time fields need 12h→24h conversion
-# Day names need abbreviation (Monday → Mon)
+# Day names → Priority integer WEEKDAY (Sun=1, Mon=2, …, Sat=7)
 
 DELIVERY_DAYS_AIRTABLE_FIELDS: list[str] = [
     "Priority Cust. ID",
