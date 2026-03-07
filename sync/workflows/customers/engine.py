@@ -39,7 +39,7 @@ from sync.core.config import (
 from sync.core.models import FieldMapping, SubformResult, SyncError, SyncMode, SyncRecord
 from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
-from sync.core.utils import clean, day_to_priority_int, format_price, format_time_24h, to_priority_date
+from sync.core.utils import clean, day_to_priority_int, format_price, format_time_24h, to_priority_date, values_equal
 from sync.workflows.customers.config import (
     AIRTABLE_CONTACTS_TABLE_ID,
     AIRTABLE_CONTACTS_VIEW,
@@ -506,7 +506,7 @@ class CustomerSyncEngine(BaseSyncEngine):
                 created += 1
             else:
                 has_changes = any(
-                    str(v).strip() != str(current.get(k) or "").strip()
+                    not values_equal(v, current.get(k))
                     for k, v in desired.items() if k != "WEEKDAY"
                 )
                 if has_changes:
@@ -752,7 +752,7 @@ class CustomerSyncEngine(BaseSyncEngine):
                 created += 1
             else:
                 has_changes = any(
-                    str(v).strip() != str(current.get(k) or "").strip()
+                    not values_equal(v, current.get(k))
                     for k, v in desired.items() if k != match_field
                 )
                 if has_changes:
@@ -960,7 +960,7 @@ class CustomerSyncEngine(BaseSyncEngine):
             patch: dict[str, Any] = {}
             for k, v in payload.items():
                 current = existing.get(k)
-                if str(current) != str(v):
+                if not values_equal(current, v):
                     patch[k] = v
 
             if not patch:

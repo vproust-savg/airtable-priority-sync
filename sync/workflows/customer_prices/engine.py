@@ -24,7 +24,7 @@ from sync.core.base_engine import BaseSyncEngine, build_field_id_map
 from sync.core.models import FieldMapping, SubformResult, SyncMode, SyncRecord
 from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
-from sync.core.utils import clean, format_price
+from sync.core.utils import clean, format_price, values_equal
 from sync.workflows.customer_prices.config import (
     AIRTABLE_KEY_FIELD,
     AIRTABLE_KEY_FIELD_ID,
@@ -220,7 +220,7 @@ class CustomerPriceSyncEngine(BaseSyncEngine):
             current = existing_for_list.get(sku)
             if current:
                 has_changes = any(
-                    str(v).strip() != str(current.get(k) or "").strip()
+                    not values_equal(v, current.get(k))
                     for k, v in payload.items() if k != "PARTNAME"
                 )
                 if not has_changes:

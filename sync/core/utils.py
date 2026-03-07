@@ -302,3 +302,25 @@ def priority_yn(value: Any) -> str | None:
     if v == "N":
         return "No"
     return v  # pass through other values (e.g. already "Yes"/"No")
+
+
+def values_equal(a: Any, b: Any) -> bool:
+    """Type-aware comparison for GET+compare optimization.
+
+    Handles the key mismatch: Python float(5.0) vs JSON int(5).
+    If either side is numeric, compare as floats with epsilon tolerance.
+    Otherwise compare as stripped strings.
+    """
+    EPSILON = 0.001
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        a_str = "" if a is None else str(a).strip()
+        b_str = "" if b is None else str(b).strip()
+        return a_str == b_str
+    if isinstance(a, (int, float)) or isinstance(b, (int, float)):
+        try:
+            return abs(float(a) - float(b)) < EPSILON
+        except (ValueError, TypeError):
+            pass
+    return str(a).strip() == str(b or "").strip()

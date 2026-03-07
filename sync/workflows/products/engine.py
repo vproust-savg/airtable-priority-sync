@@ -31,7 +31,7 @@ from sync.core.logger_setup import print_detail, print_section
 from sync.core.models import FieldMapping, SubformResult, SyncError, SyncMode, SyncRecord
 from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
-from sync.core.utils import clean
+from sync.core.utils import clean, values_equal
 from sync.core.base_engine import map_airtable_to_priority
 from sync.workflows.products.config import (
     AIRTABLE_FIELD_SKU,
@@ -359,7 +359,7 @@ class ProductSyncEngine(BaseSyncEngine):
             patch: dict[str, Any] = {}
             for k, v in payload.items():
                 current = existing.get(k)
-                if str(current) != str(v):
+                if not values_equal(current, v):
                     patch[k] = v
 
             if not patch:
@@ -671,7 +671,7 @@ class ProductSyncEngine(BaseSyncEngine):
                         if field == "PLNAME":
                             continue
                         old_value = current.get(field)
-                        if str(new_value).strip() != str(old_value or "").strip():
+                        if not values_equal(new_value, old_value):
                             has_changes = True
                             break
 
@@ -732,7 +732,7 @@ class ProductSyncEngine(BaseSyncEngine):
                 has_changes = False
                 for field, new_value in payload.items():
                     old_value = current.get(field)
-                    if str(new_value).strip() != str(old_value or "").strip():
+                    if not values_equal(new_value, old_value):
                         has_changes = True
                         break
                 if not has_changes:

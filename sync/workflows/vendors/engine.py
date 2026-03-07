@@ -38,7 +38,7 @@ from sync.core.config import (
 from sync.core.models import FieldMapping, SubformResult, SyncError, SyncMode, SyncRecord
 from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
-from sync.core.utils import clean
+from sync.core.utils import clean, values_equal
 from sync.workflows.vendors.config import (
     ACCOUNTBANK_SUBFORM_NAME,
     AIRTABLE_BANK_VIEW,
@@ -410,7 +410,7 @@ class VendorSyncEngine(BaseSyncEngine):
                 created += 1
             else:
                 has_changes = any(
-                    str(v).strip() != str(current.get(k) or "").strip()
+                    not values_equal(v, current.get(k))
                     for k, v in desired.items() if k != match_field
                 )
                 if has_changes:
@@ -616,7 +616,7 @@ class VendorSyncEngine(BaseSyncEngine):
             patch: dict[str, Any] = {}
             for k, v in payload.items():
                 current = existing.get(k)
-                if str(current) != str(v):
+                if not values_equal(current, v):
                     patch[k] = v
 
             if not patch:
@@ -698,7 +698,7 @@ class VendorSyncEngine(BaseSyncEngine):
         if existing:
             current = existing[0]  # typically one bank record
             has_changes = any(
-                str(v).strip() != str(current.get(k) or "").strip()
+                not values_equal(v, current.get(k))
                 for k, v in bank_payload.items()
             )
             if not has_changes:

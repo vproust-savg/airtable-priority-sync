@@ -22,6 +22,7 @@ from sync.core.config import (
     PRIORITY_REQUEST_TIMEOUT,
     PRIORITY_USER,
 )
+from sync.core.utils import values_equal
 
 logger = logging.getLogger(__name__)
 
@@ -632,7 +633,7 @@ class PriorityClient:
 
         for field, new_value in payload.items():
             old_value = current.get(field)
-            if str(new_value).strip() != str(old_value or "").strip():
+            if not values_equal(new_value, old_value):
                 changed[field] = new_value
 
         if not changed:
@@ -764,8 +765,7 @@ class PriorityClient:
                     if field == match_field:
                         continue  # Don't patch the key itself
                     old_value = current.get(field)
-                    # Compare as strings for simplicity
-                    if str(new_value).strip() != str(old_value or "").strip():
+                    if not values_equal(new_value, old_value):
                         changed[field] = new_value
 
                 if changed:
