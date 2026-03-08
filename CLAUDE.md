@@ -420,6 +420,71 @@ Any time you write code that compares a desired payload value against an existin
 
 ---
 
+## How to Modify Field Mappings
+
+Claude Code is the developer for this project. When adding, removing, or editing field mappings, follow these steps exactly. Both the code AND the API Matching table must stay in sync.
+
+### Reference Tables
+
+| Table | ID | Purpose |
+|---|---|---|
+| API Matching | `tblxfbeMh5hnzZj74` | Documents all 338 field mappings with metadata |
+| Glossary | `tbl8j8tBMOy0ZTf4a` | Defines all columns, transforms, patterns |
+
+### Adding a New Field
+
+1. **Identify the mapping details:**
+   - Workflow (products, vendors, customers, vendor-prices, customer-prices)
+   - Direction (A>P, P>A, or both)
+   - Priority Form Name + Priority Field Name
+   - Airtable Field Name + Airtable Field ID (get from Metadata API)
+   - Transform (clean, format_price, to_int, to_float, priority_yn, priority_lookup, linked_record)
+   - Write Behavior (blank=default, create_only, p2a_write_if_empty)
+   - Field Type (str, float, int, linked_record)
+   - If sub-form: which pattern (A, B, or C) and sub-form name
+
+2. **Update the code:**
+   - Add `FieldMapping(...)` to the correct `field_mapping.py` (A2P or P2A list)
+   - Add field to `AIRTABLE_FIELDS_TO_FETCH` dict (human name → field ID)
+   - Add field to `AIRTABLE_FIELD_IDS` dict (human name → field ID)
+   - If P→A with lookup: add `LookupConfig(entity=..., code_field=..., desc_field=...)`
+   - If P→A with linked_record: add `LinkedRecordConfig(table_id=..., match_field_id=...)`
+   - If sub-form: may need to edit `subform_mapping.py` and the engine's sub-form sync method
+
+3. **Update API Matching table:**
+   - Create a new record via Airtable MCP with all columns filled
+   - Add a comment to the record: `YYYY-MM-DD: Record created. Direction=X, Transform=Y, ...`
+
+4. **Test:** Run with `--dry-run` first, then real sync against sandbox/UAT
+
+### Removing a Field
+
+1. Remove from `field_mapping.py` (the FieldMapping object, AIRTABLE_FIELDS_TO_FETCH, and AIRTABLE_FIELD_IDS)
+2. Update API Matching record: set Claude Status = "Not Needed" or delete
+3. Add a comment to the record: `YYYY-MM-DD: Field removed from sync.`
+
+### Editing a Field (change transform, write behavior, etc.)
+
+1. Update the `FieldMapping(...)` object in the correct `field_mapping.py`
+2. Update the corresponding API Matching record columns
+3. Add a comment to the record: `YYYY-MM-DD: <what changed>. Updated by Claude Code.`
+
+### Change Tracking
+
+Every modification to an API Matching record must include an Airtable comment:
+- **Endpoint:** `POST /v0/{baseId}/{tableId}/{recordId}/comments`
+- **Body:** `{"text": "YYYY-MM-DD: <what changed>"}`
+- **Examples:**
+  - `2026-03-08: Record created. Direction=A>P, Transform=clean.`
+  - `2026-03-15: Transform changed from clean to to_float. Updated by Claude Code.`
+  - `2026-03-20: Field removed from sync. Claude Status set to Not Needed.`
+
+### Validation
+
+Run `python3 tools/validate_api_matching.py` to detect drift between the code and the API Matching table. Fix any mismatches before deploying.
+
+---
+
 ## Claude Workflow Rules
 
 ### 1. Plan Mode (Non-Negotiable)
