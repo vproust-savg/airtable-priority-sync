@@ -251,6 +251,9 @@ def map_priority_to_airtable(
             if cleaned:
                 lookup_dict = lookups.get(mapping.lookup.entity, {})
                 cleaned = lookup_dict.get(cleaned, cleaned)  # fallback to raw code
+                # Wrap in array for multipleSelects fields
+                if mapping.field_type == "multiple_select":
+                    cleaned = [cleaned]
 
         # Handle linked_record transform (Priority code → Airtable record ID array)
         elif mapping.transform == "linked_record" and mapping.linked_record and linked_records is not None:
@@ -344,8 +347,8 @@ def build_airtable_patch(
                 if str(priority_value) != str(current_value or ""):
                     patch[airtable_field] = priority_value
 
-        elif mapping.field_type == "linked_record":
-            # Linked record comparison — both sides are arrays of record IDs
+        elif mapping.field_type in ("linked_record", "multiple_select"):
+            # Array comparison — both linked records and multipleSelects are arrays
             p_list = priority_value if isinstance(priority_value, list) else []
             a_list = current_value if isinstance(current_value, list) else []
             if sorted(p_list) != sorted(a_list):

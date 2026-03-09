@@ -11,7 +11,7 @@ Only writable fields are included in P2A_FIELD_MAP.
 
 from __future__ import annotations
 
-from sync.core.models import FieldMapping
+from sync.core.models import FieldMapping, LookupConfig
 
 # ── FNCSUP field maps (imported for merged workflow) ─────────────────────────
 from sync.workflows.fncsup.field_mapping import (
@@ -178,9 +178,8 @@ A2P_FIELD_MAP: list[FieldMapping] = [
 # P→A (Priority → Airtable) — REVERSE DIRECTION
 # ═════════════════════════════════════════════════════════════════════════════
 # Limited to writable Airtable fields only.
-# Excluded (formula/aiText): Priority Vendor ID, Buyer Output, Clean Address*,
-# Clean Website, Company Email, Clean Phone Number, Priority Shipping Code,
-# Vendor Group Code, Payment Terms Code, Remarks
+# Excluded (formula/aiText): Priority Vendor ID, Company Email,
+# Clean Phone Number, Remarks
 
 P2A_FIELD_MAP: list[FieldMapping] = [
     FieldMapping(
@@ -191,9 +190,42 @@ P2A_FIELD_MAP: list[FieldMapping] = [
         field_type="str",
     ),
     FieldMapping(
+        airtable_field="Main Buyer",
+        airtable_field_id="fldxxPeJbGXQo50Z2",
+        priority_field="OWNERLOGIN",
+        transform="priority_lookup",
+        field_type="str",
+        lookup=LookupConfig(
+            entity="USERLIST",
+            code_field="USERLOGIN",
+            desc_field="USERNAME",
+        ),
+    ),
+    FieldMapping(
         airtable_field="Status",
         airtable_field_id="fldBcdMhERTIjDksV",
         priority_field="STATDES",
+        transform="clean",
+        field_type="str",
+    ),
+    FieldMapping(
+        airtable_field="Billing Address Line 1",
+        airtable_field_id="fldAsnAqhq6jxr4b0",
+        priority_field="ADDRESS",
+        transform="clean",
+        field_type="str",
+    ),
+    FieldMapping(
+        airtable_field="Billing Address Line 2",
+        airtable_field_id="fldaTlABAKWbo3FMd",
+        priority_field="ADDRESS2",
+        transform="clean",
+        field_type="str",
+    ),
+    FieldMapping(
+        airtable_field="Billing Address City",
+        airtable_field_id="fldEZqsxZdSeryMp6",
+        priority_field="STATEA",
         transform="clean",
         field_type="str",
     ),
@@ -219,11 +251,55 @@ P2A_FIELD_MAP: list[FieldMapping] = [
         field_type="str",
     ),
     FieldMapping(
+        airtable_field="Website",
+        airtable_field_id="fldNzCV1WzV6lWd4x",
+        priority_field="HOSTNAME",
+        transform="clean",
+        field_type="str",
+        p2a_write_if_empty=True,
+    ),
+    FieldMapping(
+        airtable_field="Shipping Method",
+        airtable_field_id="fldW1IO2vKCoHpR2v",
+        priority_field="STCODE",
+        transform="priority_lookup",
+        field_type="multiple_select",
+        lookup=LookupConfig(
+            entity="SHIPTYPES",
+            code_field="STCODE",
+            desc_field="STDES",
+        ),
+    ),
+    FieldMapping(
         airtable_field="Incoterms",
         airtable_field_id="fldxWNAjXoGgLdveN",
         priority_field="IMPTERMNAME",
         transform="clean",
         field_type="str",
+    ),
+    FieldMapping(
+        airtable_field="Vendor Group (3)",
+        airtable_field_id="flduerqqmwXvpBbVD",
+        priority_field="SUPTYPECODE",
+        transform="priority_lookup",
+        field_type="str",
+        lookup=LookupConfig(
+            entity="SUPTYPES",
+            code_field="SUPTYPECODE",
+            desc_field="SUPTYPEDES",
+        ),
+    ),
+    FieldMapping(
+        airtable_field="Payment Terms",
+        airtable_field_id="fldaJM70LfvtOy2HT",
+        priority_field="PAYCODE",
+        transform="priority_lookup",
+        field_type="str",
+        lookup=LookupConfig(
+            entity="PAY",
+            code_field="PAYCODE",
+            desc_field="PAYDES",
+        ),
     ),
     FieldMapping(
         airtable_field="Currency",
@@ -274,6 +350,7 @@ P2A_AIRTABLE_FIELDS_TO_FETCH: list[str] = (
 # ── P→A: Priority $select fields ───────────────────────────────────────────
 
 P2A_PRIORITY_SELECT: list[str] = (
-    ["SUPNAME", "UDATE"]
+    # NOTE: SUPPLIERS has no UDATE field — P→A always fetches ALL records.
+    ["SUPNAME"]
     + [m.priority_field for m in P2A_FIELD_MAP if m.priority_field != "SUPNAME"]
 )
