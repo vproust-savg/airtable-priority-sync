@@ -734,6 +734,10 @@ class VendorSyncEngine(BaseSyncEngine):
 
     # ── P→A extra fields (FNCSUP + bank) ──────────────────────────────────
 
+    def _get_p2a_extra_field_map(self) -> list[FieldMapping]:
+        """Include FNCSUP + bank field maps for P→A comparison."""
+        return list(FNCSUP_P2A_FIELD_MAP) + list(FNCSUP_BANK_P2A_FIELD_MAP)
+
     def _get_p2a_extra_fields(
         self,
         key: str,
