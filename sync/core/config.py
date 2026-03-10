@@ -108,29 +108,35 @@ def init_sentry() -> None:
 
     import logging
 
-    import sentry_sdk
-    from sentry_sdk.integrations.fastapi import FastApiIntegration
-    from sentry_sdk.integrations.logging import LoggingIntegration
-    from sentry_sdk.integrations.starlette import StarletteIntegration
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.logging import LoggingIntegration
+        from sentry_sdk.integrations.starlette import StarletteIntegration
 
-    sentry_sdk.init(
-        dsn=SENTRY_DSN,
-        environment=SENTRY_ENVIRONMENT,
-        traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
-        release=os.environ.get("COMMIT_SHA") or None,
-        integrations=[
-            StarletteIntegration(),
-            FastApiIntegration(),
-            LoggingIntegration(
-                level=logging.INFO,
-                event_level=logging.ERROR,
-            ),
-        ],
-        send_default_pii=False,
-    )
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            environment=SENTRY_ENVIRONMENT,
+            traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
+            release=os.environ.get("COMMIT_SHA") or None,
+            integrations=[
+                StarletteIntegration(),
+                FastApiIntegration(),
+                LoggingIntegration(
+                    level=logging.INFO,
+                    event_level=logging.ERROR,
+                ),
+            ],
+            send_default_pii=False,
+        )
 
-    _sentry_initialized = True
-    logging.getLogger(__name__).info("Sentry initialized (env: %s)", SENTRY_ENVIRONMENT)
+        _sentry_initialized = True
+        logging.getLogger(__name__).info("Sentry initialized (env: %s)", SENTRY_ENVIRONMENT)
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Sentry initialization failed — continuing without error monitoring",
+            exc_info=True,
+        )
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────

@@ -250,6 +250,15 @@ def _run_sync_background(
             scope.set_tag("workflow", workflow_name)
             scope.set_tag("direction", direction.value)
             scope.set_tag("mode", mode.value)
+            scope.set_tag("trigger", "webhook")
+            if priority_url_override:
+                from sync.core.config import PRIORITY_PROD_COMPANY, PRIORITY_UAT_COMPANY
+                if PRIORITY_UAT_COMPANY and PRIORITY_UAT_COMPANY in priority_url_override:
+                    scope.set_tag("priority_env", "uat")
+                elif PRIORITY_PROD_COMPANY and PRIORITY_PROD_COMPANY in priority_url_override:
+                    scope.set_tag("priority_env", "production")
+                else:
+                    scope.set_tag("priority_env", "sandbox")
             sentry_sdk.capture_exception(e)
 
     finally:
@@ -340,8 +349,10 @@ def health_check() -> dict[str, Any]:
 
 
 @app.get("/sentry-debug")
-async def trigger_error():
-    """Temporary endpoint to verify Sentry is working. Remove after verification."""
+async def trigger_error(key: str = ""):
+    """Verify Sentry is working. Requires webhook API key."""
+    if key != WEBHOOK_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid key")
     division_by_zero = 1 / 0
 
 
