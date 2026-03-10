@@ -125,11 +125,12 @@ A2P_FIELD_MAP: list[FieldMapping] = [
 # P→A (Priority → Airtable) field mapping — REVERSE DIRECTION
 # ═════════════════════════════════════════════════════════════════════════════
 # Most Airtable financial parameter fields are FORMULAS (read-only).
-# Only "Priority Customer Status" (singleSelect) is writable.
-# All other fields (Cust Group Code, Financial Account No, Tax Code,
-# Invoice Type, Payment Terms Code, Finance Charge Code, Curr, EDI_Y,
-# Pay to Bank Account, Financial Parameters Assigned, Billing Priority
-# Cust. ID) are formulas or lookups and cannot be written.
+# Writable fields: "Priority Customer Status" (singleSelect),
+# "Annual Revenue" (currency). All other fields (Cust Group Code,
+# Financial Account No, Tax Code, Invoice Type, Payment Terms Code,
+# Finance Charge Code, Curr, EDI_Y, Pay to Bank Account, Financial
+# Parameters Assigned, Billing Priority Cust. ID) are formulas or
+# lookups and cannot be written.
 
 P2A_FIELD_MAP: list[FieldMapping] = [
     FieldMapping(
@@ -138,6 +139,13 @@ P2A_FIELD_MAP: list[FieldMapping] = [
         priority_field="STATDES",
         transform="clean",
         field_type="str",
+    ),
+    FieldMapping(
+        airtable_field="Annual Revenue",
+        airtable_field_id="fldIJdIiohJ6zJiTq",
+        priority_field="YEARINCOME",
+        transform="to_float",
+        field_type="float",
     ),
 ]
 
