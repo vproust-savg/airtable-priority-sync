@@ -19,6 +19,8 @@
 | `python3 -m sync.run_sync --workflow vendors --priority-env uat` | Vendor sync against UAT |
 | `python3 -m sync.run_sync --workflow products --sku P00001` | Sync single product |
 | `python3 -m sync.run_sync --server` | Start webhook server (port 8000) |
+| `python3 -m pytest` | Run test suite (5 test files in tests/) |
+| `python3 tools/validate_api_matching.py` | Detect drift between code and API Matching table |
 
 **Key flags:** `--workflow` (7 options), `--direction` (airtable-to-priority / priority-to-airtable / both), `--mode` (full / status), `--dry-run`, `--sku`, `--test-base`, `--priority-env` (sandbox / uat / production)
 
@@ -85,6 +87,18 @@ Where `{workflow}` = `products`, `vendors`, `vendor-prices`, `customers`, `custo
 
 Add `&env=uat` or `&env=sandbox` for environment switching. Production blocked from webhooks.
 
+**Webhook behavior:**
+- Returns **202 Accepted** immediately — sync runs in background thread
+- Per-workflow mutex lock prevents concurrent syncs of the same workflow
+- `GET /webhook/status` returns running state and last_run time for all workflows
+- Optional `?conflict=source_wins|log_only|skip_record` param on sync endpoints
+
+### Sentry (Error Monitoring)
+- **Config:** `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE` env vars
+- **Graceful:** No-ops if `SENTRY_DSN` not set — safe to run locally without it
+- **Debug endpoint:** `GET /sentry-debug` (server only) — triggers a test exception
+- **Tags:** workflow, direction, mode, trigger, dry_run, priority_env set per sync run
+
 ### Airtable API Sync Table
 - **Table:** `API Sync` (`tblpwvHgbDzYx5Edm`) in the Savory Gourmet base
 - **Purpose:** Stores all sync URLs (Railway + AirPower) with clickable Start Sync buttons
@@ -130,14 +144,6 @@ Add `&env=uat` or `&env=sandbox` for environment switching. Production blocked f
 | **P→A UAT** | Test (writes) | UAT | `--test-base --priority-env uat` |
 | **A→P production** | Production | Production | `--priority-env production` (CLI only) |
 | **P→A production** | Production | Production | `--priority-env production` (no --test-base) |
-
-### Webhook Environment Switching
-
-Add `&env=sandbox` or `&env=uat` to any webhook URL:
-```
-GET /webhook/products/sync?key={KEY}&env=uat
-```
-Default (no `env` param): uses `PRIORITY_API_URL` from `.env` (sandbox).
 
 ---
 
@@ -192,102 +198,17 @@ Field-level details live in the code and reference files — not here. Consult t
 Priority has **three distinct sub-form behaviors**. Each requires a different API strategy.
 Getting this wrong causes 404s, 409s, or silent failures. Always match the pattern below.
 
-#### Pattern A: Single-Entity Sub-Forms (Allergens)
-**Applies to:** `SAVR_ALLERGENS_SUBFORM`
+| Sub-Form | Pattern | GET Response | Update Method | Key | Implementation |
+|----------|---------|-------------|---------------|-----|----------------|
+| `SAVR_ALLERGENS_SUBFORM` | A (single entity) | `$entity` (no value array) | PATCH on sub-form URL directly | None needed | `upsert_single_subform()` |
+| `SAVR_PARTSHELF_SUBFORM` | B (multi + URL key) | `{"value": [...]}` | PATCH with **integer** key (e.g., `SUBFORM(3)`) | `SHELFLIFE` (int) | `sync_multi_subform()` |
+| `PARTINCUSTPLISTS_SUBFORM` | C (multi, no key) | `{"value": [...]}` | **Deep PATCH** on parent entity with nested array | N/A | `deep_patch_subform()` |
+| `PARTLOCATIONS_SUBFORM` | C (multi, no key) | `{"value": [...]}` | **Deep PATCH** on parent entity with nested array | N/A | `deep_patch_subform()` |
 
-These sub-forms return a **single entity** (not an array). The GET response has
-`$entity` in its `@odata.context` and fields are returned directly at the top level
-(NOT wrapped in a `"value"` array).
-
-```
-GET  .../LOGPART('{SKU}')/SAVR_ALLERGENS_SUBFORM
-→ {"@odata.context": "...$entity", "DAIRY": "Yes", "EGGS": "No", ...}
-   (NOT {"value": [...]})
-
-PATCH .../LOGPART('{SKU}')/SAVR_ALLERGENS_SUBFORM
-→ Body: {"PEANUT": "Yes"}  (only changed fields)
-→ 200 OK
-```
-
-**Key rules:**
-- GET returns the entity directly — code must detect `$entity` in context and NOT look for `"value"` key
-- PATCH directly on the sub-form URL (no key in parentheses needed)
-- POST only for products that have NO allergen record yet (returns 409 if record already exists)
-- Implemented in: `priority_client.py → upsert_single_subform()`
-
-#### Pattern B: Multi-Record Sub-Forms with URL Keys (Shelf Lives)
-**Applies to:** `SAVR_PARTSHELF_SUBFORM`
-
-These sub-forms return a `"value"` array. Individual records are accessible by their
-**internal integer key** (NOT by a human-readable field value).
-
-```
-GET  .../LOGPART('{SKU}')/SAVR_PARTSHELF_SUBFORM
-→ {"value": [
-     {"TYPE": "Frozen", "NUMBER": 18, "TIMEUNIT": "Months", "SHELFLIFE": 3},
-     {"TYPE": "Aft. Op.", "NUMBER": 1, "TIMEUNIT": "Days", "SHELFLIFE": 4}
-   ]}
-
-GET  .../SAVR_PARTSHELF_SUBFORM(3)   → returns "Frozen" record (SHELFLIFE=3)
-GET  .../SAVR_PARTSHELF_SUBFORM(4)   → returns "Aft. Op." record (SHELFLIFE=4)
-
-PATCH .../SAVR_PARTSHELF_SUBFORM(3)  → update the "Frozen" record
-POST  .../SAVR_PARTSHELF_SUBFORM     → create a new shelf life record
-```
-
-**Key rules:**
-- Match records by human-readable field (`TYPE`) but PATCH using the **integer entity key** (`SHELFLIFE`)
-- The entity key field name varies per sub-form — for shelf lives it's `SHELFLIFE`
-- `SAVR_PARTSHELF_SUBFORM('Frozen')` → 404! String keys DO NOT work here
-- Implemented in: `priority_client.py → sync_multi_subform(url_key_field="SHELFLIFE")`
-
-#### Pattern C: Multi-Record Sub-Forms WITHOUT URL Keys (Price Lists, Bins)
-**Applies to:** `PARTINCUSTPLISTS_SUBFORM`, `PARTLOCATIONS_SUBFORM`
-
-These sub-forms return a `"value"` array but individual records **cannot be accessed
-by any key**. All attempts to GET/PATCH/DELETE a specific record return 404.
-
-```
-GET  .../LOGPART('{SKU}')/PARTINCUSTPLISTS_SUBFORM
-→ {"value": [{"PLNAME": "Base", "PRICE": 84.81, ...}, ...]}
-
-GET  .../PARTINCUSTPLISTS_SUBFORM('Base')      → 404!
-GET  .../PARTINCUSTPLISTS_SUBFORM(1)           → 404!
-GET  .../PARTINCUSTPLISTS_SUBFORM(PLNAME='Base') → 404!
-PATCH .../PARTINCUSTPLISTS_SUBFORM (collection) → 400!
-
-POST .../PARTINCUSTPLISTS_SUBFORM → creates a NEW record (409 if already exists)
-```
-
-**Solution: Deep PATCH on the parent entity.** Include sub-form records as a nested
-array in the parent LOGPART PATCH:
-
-```
-PATCH .../LOGPART('{SKU}')
-Body: {
-  "PARTINCUSTPLISTS_SUBFORM": [
-    {"PLNAME": "Base", "PRICE": 84.81, "CODE": "$", "QUANT": 1, "UNITNAME": "cs"}
-  ]
-}
-→ 200 OK (updates matching records by PLNAME)
-```
-
-**Key rules:**
-- Cannot access individual records — no key works in the URL
-- POST creates new records but fails with 409 if record already exists
-- **Use deep PATCH** on `LOGPART('{SKU}')` with nested sub-form array
-- Priority matches records internally (e.g., by PLNAME for price lists)
-- Compare locally first (GET → diff) to avoid unnecessary API calls
-- Implemented in: `priority_client.py → deep_patch_subform()`
-
-### Sub-Form Summary Table
-
-| Sub-Form | Pattern | GET Response | Update Method | Key |
-|----------|---------|-------------|---------------|-----|
-| `SAVR_ALLERGENS_SUBFORM` | A (single entity) | `$entity` (no value array) | PATCH on sub-form URL | None needed |
-| `SAVR_PARTSHELF_SUBFORM` | B (multi + URL key) | `{"value": [...]}` | PATCH with integer key | `SHELFLIFE` (int) |
-| `PARTINCUSTPLISTS_SUBFORM` | C (multi, no key) | `{"value": [...]}` | Deep PATCH on LOGPART | N/A |
-| `PARTLOCATIONS_SUBFORM` | C (multi, no key) | `{"value": [...]}` | Deep PATCH on LOGPART | N/A |
+**Critical gotchas:**
+- **Pattern A:** GET returns entity directly (detect `$entity` in `@odata.context`) — NOT a `"value"` array. POST → 409 if record exists.
+- **Pattern B:** Match by human field (`TYPE`) but PATCH using **integer entity key** (`SHELFLIFE`). String keys → 404!
+- **Pattern C:** No individual record access works (all key patterns → 404). Use deep PATCH on `LOGPART('{SKU}')` with nested sub-form array — Priority matches internally by key field (e.g., `PLNAME`).
 
 ### Error Messages to Know
 - **409 "A record with the specified key already exists"** → tried POST when record exists; need PATCH
@@ -375,6 +296,17 @@ Priority stores boolean-like fields as `"Y"` / `"N"`. Airtable singleSelect fiel
 - **Change detection:** `UDATE` field on LOGPART with `$filter=UDATE gt '{last_udate}'`. High-water mark stored in Sync Runs table. First run (no stored UDATE) fetches ALL.
 - **New product creation:** Priority-only products → CREATE in Airtable. Uses writable `SKU` field (not formula `SKU Trim (EDI)`). `PARTDES` → `Product Title Priority Input` is **create_only** (skipped on updates).
 - **Loop prevention:** P→A sets `Last Synced from Priority` = now → A→P checks if `Last Synced from Priority` > `Last Synced to Priority` → SKIP if so (no API call, just updates timestamp).
+
+---
+
+## Conflict Detection & Resolution
+
+Three strategies (set via `--conflict` CLI flag or `?conflict=` webhook param):
+- **`source_wins`** (default): sync source overwrites target — current behavior
+- **`log_only`**: skip conflicting fields, log for manual resolution
+- **`skip_record`**: skip entire record if any field has a conflict
+
+Conflict detection compares both-direction timestamps. Implementation: `base_engine.py::_detect_a2p_conflicts()` / `_detect_p2a_conflicts()`.
 
 ---
 
@@ -567,6 +499,9 @@ sync/
 ├── server.py              # FastAPI: /health, 14 webhook endpoints, env switching
 └── run_sync.py            # CLI: --workflow (7), --direction, --priority-env, --test-base, --dry-run
 ```
+
+### Secondary Entity Pattern (Merged Workflows)
+Products, Vendors, and Customers each sync secondary entities (FNCPART/PRDPART, FNCSUP, FNCCUST) within their engine. Each secondary entity gets its own `PriorityClient` instance (e.g., `self.priority_fncpart`). The base engine provides hooks: `_get_p2a_extra_field_map()`, `_get_p2a_extra_fields()`, `_post_p2a_sync()`, `_pre_a2p_batch()`. See `sync/workflows/products/engine.py` for the reference implementation.
 
 ---
 
