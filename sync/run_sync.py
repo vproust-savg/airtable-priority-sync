@@ -218,6 +218,9 @@ def main() -> int:
             scope.set_extra("workflow", args.workflow)
             scope.set_extra("direction", args.direction)
             scope.set_extra("dry_run", args.dry_run)
+            scope.set_extra("mode", args.mode)
+            scope.set_extra("priority_env", args.priority_env)
+            scope.set_extra("sku", args.sku)
             sentry_sdk.capture_exception(e)
 
         return 2

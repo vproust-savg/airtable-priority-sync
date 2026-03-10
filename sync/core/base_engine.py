@@ -1119,6 +1119,7 @@ class BaseSyncEngine(abc.ABC):
             ))
             print_record_line(index, total, key, "ERROR", f"mapping error: {e}")
             logger.error("Mapping error for %s: %s", key, e)
+            self._capture_sentry_error(e, entity_key=key, label="A2P_MAP")
             return result
 
         # Route: CREATE or UPDATE (main entity fields)
@@ -1359,7 +1360,9 @@ class BaseSyncEngine(abc.ABC):
             print_record_line(index, total, key, "ERROR", f"GET failed: {e}")
             logger.error("Failed to GET %s from Priority: %s", key, e)
 
-            self._capture_sentry_error(e, entity_key=key)
+            self._capture_sentry_error(e, entity_key=key, label="GET", extra={
+                "error_message": str(e),
+            })
 
             return result
 
@@ -1702,6 +1705,7 @@ class BaseSyncEngine(abc.ABC):
                     message=str(e),
                     timestamp=datetime.now(timezone.utc),
                 ))
+                self._capture_sentry_error(e, entity_key=key, label="P2A_MAP")
                 continue
 
             # Fetch extra fields from sub-forms (e.g. allergens)
