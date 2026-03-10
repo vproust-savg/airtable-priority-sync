@@ -84,6 +84,7 @@ PRIORITY_MAX_CALLS_PER_MINUTE = 100
 PRIORITY_PAGE_SIZE = 500  # Records per paginated GET
 PRIORITY_REQUEST_TIMEOUT = 60  # seconds (Priority can be slow)
 PRIORITY_MAX_RETRIES = 3
+PRIORITY_MAXAPILINES = 2000  # Server-side result cap per query context
 
 # ── Webhook ───────────────────────────────────────────────────────────────────
 WEBHOOK_API_KEY = os.environ.get("WEBHOOK_API_KEY", "").strip() or None

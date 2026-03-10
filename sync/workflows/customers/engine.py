@@ -34,7 +34,7 @@ from sync.core.config import (
     AIRTABLE_MAX_RETRIES,
     AIRTABLE_REQUEST_TIMEOUT,
 )
-from sync.core.models import FieldMapping, SubformResult, SyncError, SyncMode, SyncRecord
+from sync.core.models import FieldMapping, SubformResult, SyncAction, SyncError, SyncMode, SyncRecord
 from sync.core.priority_client import PriorityClient
 from sync.core.sync_log_client import SyncLogClient
 from sync.core.utils import clean, day_to_priority_int, format_price, format_time_24h, priority_yn, strip_html, to_priority_date, values_equal
@@ -85,8 +85,10 @@ from sync.workflows.customers.subform_mapping import (
     CONTACTS_FIELD_MAP,
     CONTACTS_MATCH_FIELD,
     DELIVERY_DAYS_AIRTABLE_FIELDS,
+    P2A_CONTACTS_AIRTABLE_EMAIL_MATCH_FIELD,
     P2A_CONTACTS_AIRTABLE_FIELDS,
     P2A_CONTACTS_AIRTABLE_MATCH_FIELD,
+    P2A_CONTACTS_EMAIL_MATCH_FIELD,
     P2A_CONTACTS_FIELD_MAP,
     P2A_CONTACTS_LINK_FIELD,
     P2A_CONTACTS_MATCH_FIELD,
@@ -723,65 +725,83 @@ class CustomerSyncEngine(BaseSyncEngine):
             )
             return
 
-        # Download file from Airtable CDN
-        try:
-            resp = requests.get(file_url, timeout=120)
-            resp.raise_for_status()
-            file_bytes = resp.content
-        except Exception as e:
-            logger.error("%s: Credit Application download failed: %s", key, e)
-            result.subform_results.append(
-                SubformResult(
-                    subform=CREDIT_APP_SUBFORM_NAME,
-                    action="ERROR",
-                    detail=f"Download failed: {e}",
+        # Download file from Airtable CDN (with retry)
+        file_bytes: bytes | None = None
+        for attempt in range(3):
+            try:
+                resp = requests.get(file_url, timeout=120)
+                resp.raise_for_status()
+                file_bytes = resp.content
+                break
+            except Exception as e:
+                if attempt == 2:
+                    logger.error("%s: Credit Application download failed after 3 attempts: %s", key, e)
+                    result.subform_results.append(
+                        SubformResult(
+                            subform=CREDIT_APP_SUBFORM_NAME,
+                            action="ERROR",
+                            detail=f"Download failed: {e}",
+                        )
+                    )
+                    self._capture_sentry_error(
+                        e, entity_key=key, subform=CREDIT_APP_SUBFORM_NAME,
+                        label="credit app download", extra={"file_url": file_url},
+                    )
+                    return
+                logger.warning(
+                    "%s: Credit App download attempt %d failed: %s — retrying",
+                    key, attempt + 1, e,
                 )
-            )
-            self._capture_sentry_error(
-                e, entity_key=key, subform=CREDIT_APP_SUBFORM_NAME,
-                label="credit app download", extra={"file_url": file_url},
-            )
-            return
+                time.sleep(2 * (attempt + 1))
 
         # Base64 encode and upload
         b64_data = base64.b64encode(file_bytes).decode("ascii")
         data_uri = f"data:{mime_type};base64,{b64_data}"
 
-        try:
-            url = (
-                f"{self.priority.api_url}{PRIORITY_ENTITY}"
-                f"('{key}')/{CREDIT_APP_SUBFORM_NAME}"
-            )
-            resp = self.priority.session.post(
-                url,
-                json={"EXTFILENAME": data_uri, "EXTFILEDES": doc_label},
-                timeout=180,
-            )
-            resp.raise_for_status()
-            size_kb = len(file_bytes) / 1024
-            logger.info(
-                "%s: Credit Application uploaded (%.0fKB, %s)", key, size_kb, filename,
-            )
-            result.subform_results.append(
-                SubformResult(
-                    subform=CREDIT_APP_SUBFORM_NAME,
-                    action="UPDATED",
-                    detail=f"Uploaded credit application ({size_kb:.0f}KB, {filename})",
+        url = (
+            f"{self.priority.api_url}{PRIORITY_ENTITY}"
+            f"('{key}')/{CREDIT_APP_SUBFORM_NAME}"
+        )
+        for attempt in range(3):
+            try:
+                resp = self.priority.session.post(
+                    url,
+                    json={"EXTFILENAME": data_uri, "EXTFILEDES": doc_label},
+                    timeout=180,
                 )
-            )
-        except Exception as e:
-            logger.error("%s: Credit Application upload failed: %s", key, e)
-            result.subform_results.append(
-                SubformResult(
-                    subform=CREDIT_APP_SUBFORM_NAME,
-                    action="ERROR",
-                    detail=f"Upload failed: {e}",
+                resp.raise_for_status()
+                size_kb = len(file_bytes) / 1024
+                logger.info(
+                    "%s: Credit Application uploaded (%.0fKB, %s)", key, size_kb, filename,
                 )
-            )
-            self._capture_sentry_error(
-                e, entity_key=key, subform=CREDIT_APP_SUBFORM_NAME,
-                label="credit app upload", extra={"filename": filename},
-            )
+                result.subform_results.append(
+                    SubformResult(
+                        subform=CREDIT_APP_SUBFORM_NAME,
+                        action="UPDATED",
+                        detail=f"Uploaded credit application ({size_kb:.0f}KB, {filename})",
+                    )
+                )
+                break
+            except Exception as e:
+                if attempt == 2:
+                    logger.error("%s: Credit Application upload failed after 3 attempts: %s", key, e)
+                    result.subform_results.append(
+                        SubformResult(
+                            subform=CREDIT_APP_SUBFORM_NAME,
+                            action="ERROR",
+                            detail=f"Upload failed: {e}",
+                        )
+                    )
+                    self._capture_sentry_error(
+                        e, entity_key=key, subform=CREDIT_APP_SUBFORM_NAME,
+                        label="credit app upload", extra={"filename": filename},
+                    )
+                else:
+                    logger.warning(
+                        "%s: Credit App upload attempt %d failed: %s — retrying",
+                        key, attempt + 1, e,
+                    )
+                    time.sleep(2 * (attempt + 1))
 
     # ── Generic sub-form sync ────────────────────────────────────────────
 
@@ -1073,6 +1093,20 @@ class CustomerSyncEngine(BaseSyncEngine):
                 return
 
             existing = client.get_record(key)
+
+            # If not found and this is a new customer, retry with delay.
+            # Priority may need time to auto-create the secondary entity
+            # (e.g., FNCCUST) after the parent CUSTOMERS record is created.
+            if not existing and result.action == SyncAction.CREATE:
+                for retry in range(3):
+                    time.sleep(1 * (retry + 1))  # 1s, 2s, 3s
+                    existing = client.get_record(key)
+                    if existing:
+                        logger.info(
+                            "%s: %s found after retry %d", key, label, retry + 1,
+                        )
+                        break
+
             if not existing:
                 result.subform_results.append(SubformResult(
                     subform=label,
@@ -1226,6 +1260,7 @@ class CustomerSyncEngine(BaseSyncEngine):
         Sync contacts from Priority CUSTPERSONNEL_SUBFORM into the
         Airtable Customer Contacts 2025 table.
 
+        Matching: email (primary), full name (fallback when email is empty).
         All fields are write-if-empty: only populate empty Airtable fields.
         New Priority contacts (no match in Airtable) are created.
         """
@@ -1271,16 +1306,20 @@ class CustomerSyncEngine(BaseSyncEngine):
             if not priority_contacts:
                 continue
 
-            # Existing Airtable contacts for this customer, indexed by clean name
-            existing_by_name = airtable_contacts.get(cust_key, {})
+            # Existing Airtable contacts for this customer, indexed by match key
+            existing_by_key = airtable_contacts.get(cust_key, {})
 
             for p_contact in priority_contacts:
+                # Build match key: prefer email, fall back to name
+                p_email = str(p_contact.get(P2A_CONTACTS_EMAIL_MATCH_FIELD, "")).strip().lower()
                 p_name = str(p_contact.get(P2A_CONTACTS_MATCH_FIELD, "")).strip()
-                if not p_name:
+                if not p_name and not p_email:
                     continue
 
-                # Match by full name (case-insensitive)
-                existing = existing_by_name.get(p_name.lower())
+                match_key = p_email if p_email else p_name.lower()
+
+                # Match by email (primary) or full name (fallback)
+                existing = existing_by_key.get(match_key)
 
                 # Build field values from Priority contact
                 fields = self._build_contact_fields(p_contact)
@@ -1388,7 +1427,8 @@ class CustomerSyncEngine(BaseSyncEngine):
         Fetch ALL existing contacts from the Airtable Customer Contacts 2025 table.
 
         Returns:
-            Nested dict: ``{cust_id: {clean_name_lower: {"record_id": str, "fields": dict}}}``
+            Nested dict keyed by match key (email preferred, name fallback):
+            ``{cust_id: {match_key_lower: {"record_id": str, "fields": dict}}}``
         """
         contacts_url = (
             f"{AIRTABLE_API_BASE}/{self.airtable._base_id}/{AIRTABLE_CONTACTS_TABLE_ID}"
@@ -1423,7 +1463,7 @@ class CustomerSyncEngine(BaseSyncEngine):
                 break
             time.sleep(0.2)
 
-        # Group by customer ID → clean full name (lowercase)
+        # Group by customer ID → match key (email preferred, name fallback)
         by_cust: dict[str, dict[str, dict[str, Any]]] = {}
         for record in records:
             fields = record.get("fields", {})
@@ -1437,18 +1477,19 @@ class CustomerSyncEngine(BaseSyncEngine):
                 cid = clean(cust_id_raw)
                 cust_ids = [cid] if cid else []
 
-            # Get the clean full name for matching
+            # Build match key: prefer email, fall back to full name
+            email = clean(fields.get(P2A_CONTACTS_AIRTABLE_EMAIL_MATCH_FIELD))
             full_name = clean(fields.get(P2A_CONTACTS_AIRTABLE_MATCH_FIELD))
-            if not full_name:
+
+            match_key = (email.lower() if email else
+                         full_name.lower() if full_name else None)
+            if not match_key:
                 continue
 
-            name_key = full_name.lower()
+            entry = {"record_id": record_id, "fields": fields}
 
             for cust_id in cust_ids:
-                by_cust.setdefault(cust_id, {})[name_key] = {
-                    "record_id": record_id,
-                    "fields": fields,
-                }
+                by_cust.setdefault(cust_id, {})[match_key] = entry
 
         return by_cust
 

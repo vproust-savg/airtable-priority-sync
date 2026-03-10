@@ -178,6 +178,7 @@ P2A_AIRTABLE_FIELDS_TO_FETCH: list[str] = (
 # ── P→A: Priority $select fields (for API call) ────────────────────────────
 
 P2A_PRIORITY_SELECT: list[str] = (
-    ["CUSTNAME", "UDATE"]
+    # NOTE: FNCCUST has no UDATE field.
+    ["CUSTNAME"]
     + [m.priority_field for m in P2A_FIELD_MAP if m.priority_field != "CUSTNAME"]
 )

@@ -382,7 +382,8 @@ P2A_AIRTABLE_FIELDS_TO_FETCH: list[str] = (
 # ── P→A: Priority $select fields ───────────────────────────────────────────
 
 P2A_PRIORITY_SELECT: list[str] = (
-    ["CUSTNAME", "UDATE"]
+    # NOTE: CUSTOMERS has no UDATE field — P→A always fetches ALL records.
+    ["CUSTNAME"]
     + [m.priority_field for m in P2A_FIELD_MAP if m.priority_field != "CUSTNAME"]
     # Address fields for consolidation into Billing Address Input
     + ["ADDRESS", "ADDRESS2", "STATEA", "STATENAME", "ZIP", "COUNTRYNAME"]

@@ -16,6 +16,7 @@ import requests
 from sync.core.config import (
     PRIORITY_API_URL,
     PRIORITY_MAX_CALLS_PER_MINUTE,
+    PRIORITY_MAXAPILINES,
     PRIORITY_MAX_RETRIES,
     PRIORITY_PAGE_SIZE,
     PRIORITY_PASS,
@@ -204,56 +205,76 @@ class PriorityClient:
         Fetch all existing key values from Priority via paginated GET.
         Uses $select={key_field} for minimal payload.
 
+        Uses cursor-based pagination to break through the MAXAPILINES
+        server-side cap (default 2,000 records). After each 2,000-record
+        batch, restarts with $filter={key} gt '{last_value}' to get
+        the next batch.
+
         Returns:
             Set of all key values in Priority.
         """
         keys: set[str] = set()
-        skip = 0
+        cursor_value: str | None = None  # For MAXAPILINES cursor pagination
 
-        while True:
-            url = (
-                f"{self.api_url}{self.entity}"
-                f"?$select={self.key_field}"
-                f"&$top={PRIORITY_PAGE_SIZE}"
-                f"&$skip={skip}"
-            )
+        while True:  # Outer loop: MAXAPILINES batches
+            batch_keys: list[str] = []
+            skip = 0
 
-            logger.debug("Fetching %s keys (skip=%d)", self.entity, skip)
-            response = self._request("GET", url)
-            if response is None:
-                break
+            while True:  # Inner loop: $top/$skip pages
+                params = [
+                    f"$select={self.key_field}",
+                    f"$top={PRIORITY_PAGE_SIZE}",
+                    f"$skip={skip}",
+                    f"$orderby={self.key_field}",
+                ]
+                if cursor_value:
+                    escaped = cursor_value.replace("'", "''")
+                    params.append(
+                        f"$filter={self.key_field} gt '{escaped}'"
+                    )
 
-            data = response.json()
-            records = data.get("value", [])
+                url = f"{self.api_url}{self.entity}?{'&'.join(params)}"
 
-            if not records:
-                break
+                logger.debug("Fetching %s keys (skip=%d)", self.entity, skip)
+                response = self._request("GET", url)
+                if response is None:
+                    break
 
-            for record in records:
-                key = record.get(self.key_field, "").strip()
-                if key:
-                    keys.add(key)
+                records = response.json().get("value", [])
+                if not records:
+                    break
 
-            logger.debug(
-                "Fetched %d keys (total so far: %d)",
-                len(records),
-                len(keys),
-            )
+                for record in records:
+                    key = record.get(self.key_field, "").strip()
+                    if key:
+                        batch_keys.append(key)
 
-            # If we got fewer than page size, we're done
-            if len(records) < PRIORITY_PAGE_SIZE:
-                break
+                logger.debug(
+                    "Fetched %d keys (total so far: %d)",
+                    len(records),
+                    len(keys) + len(batch_keys),
+                )
 
-            skip += PRIORITY_PAGE_SIZE
+                if len(records) < PRIORITY_PAGE_SIZE:
+                    break
+                skip += PRIORITY_PAGE_SIZE
 
-        # Warn if we hit Priority's MAXAPILINES limit (default 2000)
-        if len(keys) >= 2000 and len(keys) % PRIORITY_PAGE_SIZE == 0:
-            logger.warning(
-                "Loaded exactly %d keys — may have hit Priority MAXAPILINES "
-                "limit. Records beyond this will use 409 fallback.",
-                len(keys),
-            )
+            keys.update(batch_keys)
 
+            # If batch hit MAXAPILINES, continue from the last key
+            if len(batch_keys) >= PRIORITY_MAXAPILINES:
+                cursor_value = batch_keys[-1]  # Sorted by $orderby
+                logger.info(
+                    "Hit MAXAPILINES (%d keys), continuing from '%s'",
+                    len(batch_keys),
+                    cursor_value,
+                )
+            else:
+                break  # Got all records
+
+        logger.info(
+            "Loaded %d total %s keys from Priority.", len(keys), self.entity
+        )
         return keys
 
     def fetch_changed_records(
@@ -269,6 +290,11 @@ class PriorityClient:
         - If since_udate is None (first run), returns ALL records.
         - Uses $select to minimize payload (only mapped fields).
 
+        Uses cursor-based pagination to break through the MAXAPILINES
+        server-side cap (default 2,000 records). After each 2,000-record
+        batch, restarts with $filter={key} gt '{last_value}' combined
+        with any existing UDATE filter.
+
         Args:
             since_udate: ISO timestamp string. Records with UDATE > this are returned.
                          None means fetch all records.
@@ -279,58 +305,79 @@ class PriorityClient:
             List of record dicts from Priority.
         """
         results: list[dict[str, Any]] = []
-        skip = 0
+        cursor_value: str | None = None  # For MAXAPILINES cursor pagination
 
-        # Build $select
+        # Build $select (once — doesn't change between batches)
         select_clause = ""
         if select_fields:
             # Ensure key_field is always included
             fields = list(dict.fromkeys([self.key_field] + select_fields))
             select_clause = f"$select={','.join(fields)}"
 
-        # Build $filter
-        filter_clause = ""
-        if since_udate:
-            filter_clause = f"$filter=UDATE gt '{since_udate}'"
+        while True:  # Outer loop: MAXAPILINES batches
+            batch_results: list[dict[str, Any]] = []
+            skip = 0
 
-        while True:
-            # Build URL with OData params
-            params = [f"$top={PRIORITY_PAGE_SIZE}", f"$skip={skip}"]
-            if select_clause:
-                params.append(select_clause)
-            if filter_clause:
-                params.append(filter_clause)
+            while True:  # Inner loop: $top/$skip pages
+                params = [
+                    f"$top={PRIORITY_PAGE_SIZE}",
+                    f"$skip={skip}",
+                    f"$orderby={self.key_field}",
+                ]
+                if select_clause:
+                    params.append(select_clause)
 
-            url = f"{self.api_url}{self.entity}?{'&'.join(params)}"
+                # Build combined $filter (UDATE + cursor)
+                filters: list[str] = []
+                if since_udate:
+                    filters.append(f"UDATE gt '{since_udate}'")
+                if cursor_value:
+                    escaped = cursor_value.replace("'", "''")
+                    filters.append(f"{self.key_field} gt '{escaped}'")
+                if filters:
+                    params.append(f"$filter={' and '.join(filters)}")
 
-            logger.debug(
-                "Fetching %s records (skip=%d, filter=%s)",
-                self.entity,
-                skip,
-                "UDATE" if since_udate else "none",
-            )
-            response = self._request("GET", url)
-            if response is None:
-                break
+                url = f"{self.api_url}{self.entity}?{'&'.join(params)}"
 
-            data = response.json()
-            records = data.get("value", [])
+                logger.debug(
+                    "Fetching %s records (skip=%d, filter=%s)",
+                    self.entity,
+                    skip,
+                    "UDATE" if since_udate else "none",
+                )
+                response = self._request("GET", url)
+                if response is None:
+                    break
 
-            if not records:
-                break
+                records = response.json().get("value", [])
+                if not records:
+                    break
 
-            results.extend(records)
-            logger.debug(
-                "Fetched %d records (total so far: %d)",
-                len(records),
-                len(results),
-            )
+                batch_results.extend(records)
+                logger.debug(
+                    "Fetched %d records (total so far: %d)",
+                    len(records),
+                    len(results) + len(batch_results),
+                )
 
-            # If fewer than page size, we've reached the end
-            if len(records) < PRIORITY_PAGE_SIZE:
-                break
+                # If fewer than page size, we've reached the end
+                if len(records) < PRIORITY_PAGE_SIZE:
+                    break
+                skip += PRIORITY_PAGE_SIZE
 
-            skip += PRIORITY_PAGE_SIZE
+            results.extend(batch_results)
+
+            # If batch hit MAXAPILINES, continue from the last key
+            if len(batch_results) >= PRIORITY_MAXAPILINES:
+                last_record = batch_results[-1]
+                cursor_value = last_record.get(self.key_field, "").strip()
+                logger.info(
+                    "Hit MAXAPILINES (%d records), continuing from '%s'",
+                    len(batch_results),
+                    cursor_value,
+                )
+            else:
+                break  # Got all records
 
         logger.info(
             "Fetched %d %s records from Priority%s",

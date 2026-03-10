@@ -260,15 +260,19 @@ P2A_CONTACTS_FIELD_MAP: dict[str, tuple[str, str]] = {
     "CONSINGEEFLAG": ("Outgoing Voucher", "priority_yn"),
 }
 
-P2A_CONTACTS_MATCH_FIELD = "NAME"  # Priority full name for matching
-P2A_CONTACTS_AIRTABLE_MATCH_FIELD = "Clean Full Name"  # Airtable formula for matching
+P2A_CONTACTS_MATCH_FIELD = "NAME"  # Priority fallback match field (full name)
+P2A_CONTACTS_EMAIL_MATCH_FIELD = "EMAIL"  # Priority primary match field (email)
+P2A_CONTACTS_AIRTABLE_MATCH_FIELD = "Clean Full Name"  # Airtable name (fallback)
+P2A_CONTACTS_AIRTABLE_EMAIL_MATCH_FIELD = "Email Input"  # Airtable email (primary)
 P2A_CONTACTS_LINK_FIELD = "Customers"  # Linked record field to parent customer
 
 # Airtable fields to fetch for P→A comparison
+# Note: "Email Input" is already in P2A_CONTACTS_FIELD_MAP, so it's auto-included.
+# "Clean Full Name" is a formula field used for name-based fallback matching.
 P2A_CONTACTS_AIRTABLE_FIELDS: list[str] = (
     [at_field for _, (at_field, _) in P2A_CONTACTS_FIELD_MAP.items()]
     + [
-        P2A_CONTACTS_AIRTABLE_MATCH_FIELD,  # For matching by full name
+        P2A_CONTACTS_AIRTABLE_MATCH_FIELD,  # "Clean Full Name" — for name fallback matching
         "Priority Cust. ID (from Customers)",  # To group by customer
     ]
 )
