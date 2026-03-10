@@ -94,6 +94,7 @@ from sync.workflows.customers.subform_mapping import (
     P2A_SITES_AIRTABLE_FIELDS,
     P2A_SITES_AIRTABLE_MATCH_FIELD,
     P2A_SITES_FIELD_MAP,
+    P2A_SITES_LINK_FIELD,
     P2A_SITES_MATCH_FIELD,
     P2A_SITES_OVERWRITE_FIELDS,
     PRICE_LIST_AIRTABLE_FIELDS,
@@ -1313,11 +1314,11 @@ class CustomerSyncEngine(BaseSyncEngine):
                         unchanged += 1
 
         # Step 4: Batch write to Airtable Customer Contacts 2025 table
-        created_count = 0
+        created_ids: list[str] = []
         updated_count = 0
 
         if creates and not self.dry_run:
-            created_count = self.airtable.batch_create_to_table(
+            created_ids = self.airtable.batch_create_to_table(
                 AIRTABLE_CONTACTS_TABLE_ID, creates,
             )
 
@@ -1328,7 +1329,7 @@ class CustomerSyncEngine(BaseSyncEngine):
 
         summary = (
             f"Contacts P→A: "
-            f"{created_count or len(creates)} created, "
+            f"{len(created_ids) or len(creates)} created, "
             f"{updated_count or len(updates)} updated, "
             f"{unchanged} unchanged"
         )
@@ -1462,7 +1463,7 @@ class CustomerSyncEngine(BaseSyncEngine):
         Sync sites from Priority CUSTDESTS_SUBFORM into the
         Airtable Customer Sites table.
 
-        Update only — no new site creation (Site Id is auto-generated).
+        Creates new site records when no Airtable match exists.
         Most fields are write-if-empty; MAINFLAG always-overwrites.
         """
         logger.info("Syncing sites (P→A)...")
@@ -1488,11 +1489,15 @@ class CustomerSyncEngine(BaseSyncEngine):
                 keys_to_process.append(key)
 
         updates: list[dict[str, Any]] = []
+        creates: list[dict[str, Any]] = []
         unchanged = 0
-        skipped_no_match = 0
 
         # Step 4: For each customer, fetch Priority sites and compare
         for cust_key in keys_to_process:
+            # Get customer's Airtable record ID for linking new sites
+            cust_airtable = airtable_by_key.get(cust_key)
+            cust_record_id = cust_airtable["record_id"] if cust_airtable else None
+
             # Fetch sites from Priority
             try:
                 priority_sites = self.priority.get_subform(
@@ -1517,10 +1522,28 @@ class CustomerSyncEngine(BaseSyncEngine):
                 existing = existing_by_code.get(p_code.lower())
 
                 if existing is None:
-                    # No match — skip (update only, no creates)
-                    skipped_no_match += 1
+                    # ── CREATE: new site record ────────────────────────
+                    if not cust_record_id:
+                        logger.warning(
+                            "Cannot create site %s for %s — customer not in Airtable",
+                            p_code, cust_key,
+                        )
+                        continue
+
+                    create_fields: dict[str, Any] = {
+                        P2A_SITES_AIRTABLE_MATCH_FIELD: p_code,
+                        P2A_SITES_LINK_FIELD: [cust_record_id],
+                    }
+
+                    # Populate all mapped fields (no write-if-empty for creates)
+                    fields = self._build_site_fields(p_site, zone_lookup, shipper_lookup)
+                    if fields:
+                        create_fields.update(fields)
+
+                    creates.append({"fields": create_fields})
                     continue
 
+                # ── UPDATE: existing site record ────────────────────
                 # Build field values from Priority site
                 fields = self._build_site_fields(p_site, zone_lookup, shipper_lookup)
                 if not fields:
@@ -1555,17 +1578,24 @@ class CustomerSyncEngine(BaseSyncEngine):
 
         # Step 5: Batch write to Airtable Customer Sites table
         updated_count = 0
+        created_count = 0
 
         if updates and not self.dry_run:
             updated_count = self.airtable.batch_update_to_table(
                 AIRTABLE_SITES_TABLE_ID, updates,
             )
 
+        if creates and not self.dry_run:
+            created_ids = self.airtable.batch_create_to_table(
+                AIRTABLE_SITES_TABLE_ID, creates,
+            )
+            created_count = len(created_ids)
+
         summary = (
             f"Sites P→A: "
+            f"{created_count or len(creates)} created, "
             f"{updated_count or len(updates)} updated, "
-            f"{unchanged} unchanged, "
-            f"{skipped_no_match} skipped (no Airtable match)"
+            f"{unchanged} unchanged"
         )
         logger.info(summary)
 

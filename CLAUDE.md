@@ -469,6 +469,12 @@ Claude Code is the developer for this project. When adding, removing, or editing
 2. Update the corresponding API Matching record columns
 3. Add a comment to the record: `YYYY-MM-DD: <what changed>. Updated by Claude Code.`
 
+### API Matching Column Ownership
+
+- **Never update `Victor Status`** — this column is managed exclusively by the user
+- **Never update `Victor Comments`** — this column is managed exclusively by the user
+- Claude may only update: `Claude Status`, `Claude Comments`, and field mapping metadata columns
+
 ### Change Tracking
 
 Every modification to an API Matching record must include an Airtable comment:

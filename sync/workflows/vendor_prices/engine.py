@@ -187,6 +187,9 @@ class VendorPriceSyncEngine(BaseSyncEngine):
 
         Compares with pre-fetched existing prices before writing.
         """
+        # DEACTIVATED (Victor 2026-03-10: not needed for now)
+        logger.info("Vendor Prices A→P sync is currently deactivated.")
+        return
         # Build the PARTPRICE2 payload from this record
         payload: dict[str, Any] = {}
         for at_field, p_field in ITEMS_FIELD_MAP.items():

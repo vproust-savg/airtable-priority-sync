@@ -296,7 +296,8 @@ P2A_SITES_FIELD_MAP: dict[str, tuple[str, str]] = {
 P2A_SITES_OVERWRITE_FIELDS: set[str] = {"Main"}
 
 P2A_SITES_MATCH_FIELD = "CODE"  # Priority site code for matching
-P2A_SITES_AIRTABLE_MATCH_FIELD = "Site Id"  # Airtable formula for matching
+P2A_SITES_AIRTABLE_MATCH_FIELD = "Site ID Input"  # Writable singleLineText for site code
+P2A_SITES_LINK_FIELD = "Customers"  # Linked record field to parent customer
 
 # Address consolidation target (write-if-empty)
 P2A_SITES_ADDRESS_TARGET = "Address Input"
@@ -305,7 +306,7 @@ P2A_SITES_ADDRESS_TARGET = "Address Input"
 P2A_SITES_AIRTABLE_FIELDS: list[str] = (
     [at_field for _, (at_field, _) in P2A_SITES_FIELD_MAP.items()]
     + [
-        P2A_SITES_AIRTABLE_MATCH_FIELD,  # "Site Id" — for matching
+        P2A_SITES_AIRTABLE_MATCH_FIELD,  # "Site ID Input" — for matching
         P2A_SITES_ADDRESS_TARGET,         # "Address Input" — for write-if-empty check
         "Priority Cust. ID",              # Formula — for grouping by customer
     ]

@@ -897,11 +897,11 @@ class ProductSyncEngine(BaseSyncEngine):
                         unchanged += 1
 
         # Step 4: Batch write to Airtable Shelf Lives table
-        created_count = 0
+        created_ids: list[str] = []
         updated_count = 0
 
         if creates and not self.dry_run:
-            created_count = self.airtable.batch_create_to_table(
+            created_ids = self.airtable.batch_create_to_table(
                 AIRTABLE_SHELF_LIVES_TABLE_ID, creates,
             )
 
@@ -912,7 +912,7 @@ class ProductSyncEngine(BaseSyncEngine):
 
         summary = (
             f"Shelf lives P→A: "
-            f"{created_count or len(creates)} created, "
+            f"{len(created_ids) or len(creates)} created, "
             f"{updated_count or len(updates)} updated, "
             f"{unchanged} unchanged"
         )

@@ -304,6 +304,26 @@ def priority_yn(value: Any) -> str | None:
     return v  # pass through other values (e.g. already "Yes"/"No")
 
 
+def reverse_yn(value: Any) -> str | None:
+    """
+    Convert Airtable Yes/No values to Priority Y/N.
+
+    Airtable singleSelect fields use "Yes" / "No".
+    Priority stores boolean-like fields as "Y" / "N".
+    Non-Yes/No values pass through unchanged.
+
+    Returns None if the value is empty.
+    """
+    v = clean(value)
+    if v is None:
+        return None
+    if v == "Yes":
+        return "Y"
+    if v == "No":
+        return "N"
+    return v  # pass through other values (e.g. already "Y"/"N")
+
+
 def strip_html(text: str) -> str:
     """
     Strip HTML tags and normalize whitespace for text comparison.
